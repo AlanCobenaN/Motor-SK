@@ -1,0 +1,23 @@
+# Build
+build/
+out/
+cmake-build-*/
+CMakeUserPresets.json
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Binarios generados
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+
+# Windows
+Thumbs.db
+desktop.ini
