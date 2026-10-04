@@ -36,6 +36,9 @@ private:
     static long long __stdcall wndProc(void* hwnd, unsigned int msg,
                                        unsigned long long wParam, long long lParam);
 
+    // Pintado custom (NM_CUSTOMDRAW) de filas y columnas del ListView.
+    long long customDraw(void* nm);
+
     int selectedIndex() const;
     const Project* selectedProject() const;
 

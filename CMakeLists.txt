@@ -29,8 +29,9 @@ add_executable(${PROJECT_NAME}
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE VK_USE_PLATFORM_WIN32_KHR)
 
-# comctl32: ListView; shell32: SHGetFolderPathA (Documentos).
-target_link_libraries(${PROJECT_NAME} PRIVATE Vulkan::Vulkan comctl32 shell32)
+# comctl32: ListView; shell32: SHGetFolderPathA (Documentos);
+# gdi32: pintado de botones; dwmapi: barra de titulo oscura.
+target_link_libraries(${PROJECT_NAME} PRIVATE Vulkan::Vulkan comctl32 shell32 gdi32 dwmapi)
 
 if(MSVC)
     target_compile_options(${PROJECT_NAME} PRIVATE /W4)

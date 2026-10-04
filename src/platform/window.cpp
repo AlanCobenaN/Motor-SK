@@ -4,6 +4,7 @@
 #include <windowsx.h>
 
 #include "../core/log.h"
+#include "../ui/theme.h"
 
 namespace sk {
 
@@ -52,6 +53,9 @@ bool Window::create(int width, int height, const char* title) {
 
     width_ = width;
     height_ = height;
+
+    // Barra de titulo oscura a juego con el tema de la interfaz.
+    theme::enableDarkTitleBar(static_cast<HWND>(hwnd_));
 
     ShowWindow(static_cast<HWND>(hwnd_), SW_SHOW);
     UpdateWindow(static_cast<HWND>(hwnd_));

@@ -79,6 +79,8 @@ int main(int argc, char** argv) {
     bool view3d = false;
     sk::Project active;
 
+    sk::ProjectsPanel panel;
+
     auto openProject = [&](const std::string& folder) {
         sk::Project p;
         if (!sk::project::load(folder, p)) {
@@ -89,12 +91,12 @@ int main(int argc, char** argv) {
         config.save();
         active = std::move(p);
         view3d = true;
+        panel.setVisible(false);
         SetWindowTextA(static_cast<HWND>(window.nativeHandle()),
                        ("Motor SK - " + active.name).c_str());
         SK_INFO("Proyecto abierto: %s", active.name.c_str());
     };
 
-    sk::ProjectsPanel panel;
     if (!panel.create(window.nativeHandle(), &config, openProject)) {
         renderer.shutdown();
         window.destroy();
@@ -104,7 +106,6 @@ int main(int argc, char** argv) {
     if (!startupProject.empty()) {
         // Arranque en modo vista 3D (pruebas/atajos).
         openProject(startupProject);
-        panel.setVisible(false);
     }
 
     sk::Camera camera;

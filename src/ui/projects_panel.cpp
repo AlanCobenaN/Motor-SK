@@ -3,13 +3,16 @@
 #include <windows.h>
 #include <windowsx.h>
 #include <commctrl.h>
+#include <dwmapi.h>
 
 #include <algorithm>
 #include <ctime>
 #include <filesystem>
+#include <list>
 
 #include "../core/config.h"
 #include "../core/log.h"
+#include "theme.h"
 
 namespace fs = std::filesystem;
 
@@ -36,6 +39,64 @@ std::string formatEpoch(long long t) {
     char buf[32];
     std::strftime(buf, sizeof(buf), "%d/%m/%Y %H:%M", &tm);
     return buf;
+}
+
+// ---------------------------------------------------------------------------
+// Botones oscuros: subclase para el estado hover + pintado owner-draw.
+// ---------------------------------------------------------------------------
+
+struct DarkButton {
+    HWND hwnd;
+    bool hover;
+};
+
+// std::list: los punteros a los elementos son estables (el subclass proc
+// guarda un DarkButton* en dwRefData).
+std::list<DarkButton> gButtons;
+
+DarkButton* findDarkButton(HWND hwnd) {
+    for (DarkButton& b : gButtons) {
+        if (b.hwnd == hwnd) return &b;
+    }
+    return nullptr;
+}
+
+LRESULT CALLBACK darkButtonProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                UINT_PTR /*subclassId*/, DWORD_PTR refData) {
+    auto* button = reinterpret_cast<DarkButton*>(refData);
+    switch (msg) {
+        case WM_MOUSEMOVE: {
+            const bool disabled = (GetWindowLongA(hwnd, GWL_STYLE) & WS_DISABLED) != 0;
+            if (!disabled && !button->hover) {
+                button->hover = true;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            TRACKMOUSEEVENT tme{sizeof(tme), TME_LEAVE, hwnd, 0};
+            TrackMouseEvent(&tme);
+            break;
+        }
+        case WM_MOUSELEAVE:
+            if (button->hover) {
+                button->hover = false;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            break;
+        case WM_ERASEBKGND:
+            return 1;
+        case WM_NCDESTROY:
+            RemoveWindowSubclass(hwnd, darkButtonProc, 1);
+            gButtons.remove_if([=](const DarkButton& b) { return b.hwnd == hwnd; });
+            break;
+        default:
+            break;
+    }
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+void makeDarkButton(HWND hwnd) {
+    gButtons.push_back({hwnd, false});
+    SetWindowSubclass(hwnd, darkButtonProc, 1,
+                      reinterpret_cast<DWORD_PTR>(&gButtons.back()));
 }
 
 // ---------------------------------------------------------------------------
@@ -67,21 +128,45 @@ long long __stdcall promptWndProc(void* hwndPtr, unsigned int msg,
                                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
                                         12, 34, 316, 24, hwnd, nullptr, inst, nullptr);
             HWND ok = CreateWindowExA(0, "BUTTON", "Aceptar",
-                                      WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
+                                      WS_CHILD | WS_VISIBLE | WS_TABSTOP |
+                                          BS_OWNERDRAW | BS_DEFPUSHBUTTON,
                                       158, 72, 82, 26, hwnd,
                                       reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDOK)),
                                       inst, nullptr);
             HWND cancel = CreateWindowExA(0, "BUTTON", "Cancelar",
-                                          WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                                          WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                                           246, 72, 82, 26, hwnd,
                                           reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDCANCEL)),
                                           inst, nullptr);
 
-            for (HWND c : {label, edit, ok, cancel}) {
+            for (HWND c : {label, edit}) {
                 SendMessageA(c, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
             }
+            makeDarkButton(ok);
+            makeDarkButton(cancel);
             if (gPrompt) gPrompt->edit = edit;
             return 0;
+        }
+        case WM_DRAWITEM: {
+            auto* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
+            if (dis->CtlType == ODT_BUTTON) {
+                const DarkButton* b = findDarkButton(dis->hwndItem);
+                theme::paintDarkButton(*dis, b != nullptr && b->hover);
+                return TRUE;
+            }
+            break;
+        }
+        case WM_CTLCOLORSTATIC: {
+            HDC hdc = reinterpret_cast<HDC>(wParam);
+            SetTextColor(hdc, theme::text());
+            SetBkMode(hdc, TRANSPARENT);
+            return reinterpret_cast<LRESULT>(theme::backgroundBrush());
+        }
+        case WM_CTLCOLOREDIT: {
+            HDC hdc = reinterpret_cast<HDC>(wParam);
+            SetTextColor(hdc, theme::text());
+            SetBkColor(hdc, theme::surface());
+            return reinterpret_cast<LRESULT>(theme::surfaceBrush());
         }
         case WM_COMMAND: {
             const int id = LOWORD(wParam);
@@ -116,7 +201,7 @@ std::string promptText(HWND owner, const char* title, const char* initial) {
         wc.lpfnWndProc = reinterpret_cast<WNDPROC>(&promptWndProc);
         wc.hInstance = GetModuleHandleW(nullptr);
         wc.hCursor = LoadCursorA(nullptr, IDC_ARROW);
-        wc.hbrBackground = reinterpret_cast<HBRUSH>(static_cast<INT_PTR>(COLOR_WINDOW + 1));
+        wc.hbrBackground = theme::backgroundBrush();
         wc.lpszClassName = kPromptClass;
         RegisterClassExA(&wc);
         registered = true;
@@ -142,6 +227,7 @@ std::string promptText(HWND owner, const char* title, const char* initial) {
         gPrompt = nullptr;
         return "";
     }
+    theme::enableDarkTitleBar(hwnd);
 
     SetWindowTextA(state.edit, initial);
     SetFocus(state.edit);
@@ -160,6 +246,19 @@ std::string promptText(HWND owner, const char* title, const char* initial) {
     SetActiveWindow(owner);
     gPrompt = nullptr;
     return state.accepted ? state.value : "";
+}
+
+// Selecciona en la lista el proyecto con esta carpeta (tras crear/renombrar).
+void selectFolder(HWND list, const std::vector<Project>& projects,
+                  const std::string& folder) {
+    for (int i = 0; i < static_cast<int>(projects.size()); ++i) {
+        if (projects[i].folder == folder) {
+            ListView_SetItemState(list, i, LVIS_SELECTED | LVIS_FOCUSED,
+                                  LVIS_SELECTED | LVIS_FOCUSED);
+            ListView_EnsureVisible(list, i, FALSE);
+            return;
+        }
+    }
 }
 
 } // namespace
@@ -183,7 +282,7 @@ bool ProjectsPanel::create(void* parentHwnd, Config* config, OpenHandler onOpen)
         wc.lpfnWndProc = reinterpret_cast<WNDPROC>(&ProjectsPanel::wndProc);
         wc.hInstance = GetModuleHandleW(nullptr);
         wc.hCursor = LoadCursorA(nullptr, IDC_ARROW);
-        wc.hbrBackground = reinterpret_cast<HBRUSH>(static_cast<INT_PTR>(COLOR_WINDOW + 1));
+        wc.hbrBackground = theme::backgroundBrush();
         wc.lpszClassName = kPanelClass;
         RegisterClassExA(&wc);
         registered = true;
@@ -206,11 +305,11 @@ bool ProjectsPanel::create(void* parentHwnd, Config* config, OpenHandler onOpen)
 
     auto makeButton = [&](const char* text, int id) -> void* {
         HWND b = CreateWindowExA(0, "BUTTON", text,
-                                 WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                                  0, 0, 92, 26, static_cast<HWND>(hwnd_),
                                  reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
                                  inst, nullptr);
-        SendMessageA(b, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        makeDarkButton(b);
         return b;
     };
 
@@ -228,6 +327,9 @@ bool ProjectsPanel::create(void* parentHwnd, Config* config, OpenHandler onOpen)
     ListView_SetExtendedListViewStyle(static_cast<HWND>(list_),
                                       LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
     SendMessageA(static_cast<HWND>(list_), WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    ListView_SetBkColor(static_cast<HWND>(list_), theme::listBackground());
+    ListView_SetTextBkColor(static_cast<HWND>(list_), theme::listBackground());
+    ListView_SetTextColor(static_cast<HWND>(list_), theme::text());
 
     auto addColumn = [&](int index, const char* text, int width) {
         LVCOLUMNA col{};
@@ -347,10 +449,22 @@ const Project* ProjectsPanel::selectedProject() const {
 }
 
 void ProjectsPanel::updateButtons() {
+    auto setEnabled = [](void* handle, bool enabled) {
+        HWND hwnd = static_cast<HWND>(handle);
+        if (!hwnd) return;
+        if (!enabled) {
+            // Un boton deshabilitado no puede quedar en estado hover.
+            if (DarkButton* b = findDarkButton(hwnd); b && b->hover) {
+                b->hover = false;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+        }
+        EnableWindow(hwnd, enabled);
+    };
     const bool hasSelection = selectedProject() != nullptr;
-    if (btnRename_) EnableWindow(static_cast<HWND>(btnRename_), hasSelection);
-    if (btnDelete_) EnableWindow(static_cast<HWND>(btnDelete_), hasSelection);
-    if (btnOpen_) EnableWindow(static_cast<HWND>(btnOpen_), hasSelection);
+    setEnabled(btnRename_, hasSelection);
+    setEnabled(btnDelete_, hasSelection);
+    setEnabled(btnOpen_, hasSelection);
 }
 
 void ProjectsPanel::onSelectionChanged() {
@@ -361,23 +475,6 @@ void ProjectsPanel::openSelected() {
     const Project* p = selectedProject();
     if (p && onOpen_) onOpen_(p->folder);
 }
-
-namespace {
-
-// Selecciona en la lista el proyecto con esta carpeta (tras crear/renombrar).
-void selectFolder(HWND list, const std::vector<Project>& projects,
-                  const std::string& folder) {
-    for (int i = 0; i < static_cast<int>(projects.size()); ++i) {
-        if (projects[i].folder == folder) {
-            ListView_SetItemState(list, i, LVIS_SELECTED | LVIS_FOCUSED,
-                                  LVIS_SELECTED | LVIS_FOCUSED);
-            ListView_EnsureVisible(list, i, FALSE);
-            return;
-        }
-    }
-}
-
-} // namespace
 
 void ProjectsPanel::newProject() {
     const std::string name =
@@ -395,7 +492,7 @@ void ProjectsPanel::newProject() {
     if (!project::create(name, folder)) {
         MessageBoxA(static_cast<HWND>(hwnd_),
                     "No se pudo crear la carpeta del proyecto.\n"
-                    "¿Ya existe un proyecto con ese nombre?",
+                    "Ya existe un proyecto con ese nombre?",
                     "Nuevo proyecto", MB_OK | MB_ICONERROR);
         return;
     }
@@ -425,7 +522,7 @@ void ProjectsPanel::renameSelected() {
     if (!project::rename(folder, name, newFolder)) {
         MessageBoxA(static_cast<HWND>(hwnd_),
                     "No se pudo renombrar el proyecto.\n"
-                    "¿Ya existe otro proyecto con ese nombre?",
+                    "Ya existe otro proyecto con ese nombre?",
                     "Renombrar proyecto", MB_OK | MB_ICONERROR);
         return;
     }
@@ -446,8 +543,8 @@ void ProjectsPanel::deleteSelected() {
     if (!p) return;
 
     const std::string folder = p->folder;
-    std::string message =
-        "¿Borrar el proyecto \"" + p->name + "\"?\n\n" +
+    const std::string message =
+        "Borrar el proyecto \"" + p->name + "\"?\n\n"
         "Se eliminara la carpeta completa:\n" + folder +
         "\n\nEsta accion no se puede deshacer.";
 
@@ -468,6 +565,72 @@ void ProjectsPanel::deleteSelected() {
     }
 }
 
+// Pintado custom del ListView (filas) y de sus columnas (headers).
+long long ProjectsPanel::customDraw(void* nmPtr) {
+    auto* nm = static_cast<NMHDR*>(nmPtr);
+    if (nm->hwndFrom == static_cast<HWND>(list_)) {
+        auto* cd = reinterpret_cast<NMCUSTOMDRAW*>(nm);
+        switch (cd->dwDrawStage) {
+            case CDDS_PREPAINT:
+                return CDRF_NOTIFYITEMDRAW;
+            case CDDS_ITEMPREPAINT: {
+                const int i = static_cast<int>(cd->dwItemSpec);
+                const bool selected =
+                    (ListView_GetItemState(static_cast<HWND>(list_), i, LVIS_SELECTED) &
+                     LVIS_SELECTED) != 0;
+                const COLORREF fill = selected ? theme::accent() : theme::listBackground();
+                HBRUSH brush = CreateSolidBrush(fill);
+                FillRect(cd->hdc, &cd->rc, brush);
+                DeleteObject(brush);
+                SetTextColor(cd->hdc, theme::text());
+                SetBkColor(cd->hdc, fill);
+                return CDRF_NEWFONT;
+            }
+            default:
+                break;
+        }
+        return CDRF_DODEFAULT;
+    }
+
+    if (nm->hwndFrom == ListView_GetHeader(static_cast<HWND>(list_))) {
+        auto* cd = reinterpret_cast<NMCUSTOMDRAW*>(nm);
+        switch (cd->dwDrawStage) {
+            case CDDS_PREPAINT: {
+                // Fondo de todo el header, incluida la zona vacia a la
+                // derecha de la ultima columna.
+                HBRUSH brush = CreateSolidBrush(theme::headerBackground());
+                FillRect(cd->hdc, &cd->rc, brush);
+                DeleteObject(brush);
+                return CDRF_NOTIFYITEMDRAW;
+            }
+            case CDDS_ITEMPREPAINT: {
+                char headerText[128]{};
+                HDITEMA item{};
+                item.mask = HDI_TEXT;
+                item.pszText = headerText;
+                item.cchTextMax = static_cast<int>(sizeof(headerText));
+                Header_GetItem(cd->hdr.hwndFrom, cd->dwItemSpec, &item);
+
+                HBRUSH brush = CreateSolidBrush(theme::headerBackground());
+                FillRect(cd->hdc, &cd->rc, brush);
+                DeleteObject(brush);
+
+                RECT rc = cd->rc;
+                rc.left += 8;
+                SetBkMode(cd->hdc, TRANSPARENT);
+                SetTextColor(cd->hdc, theme::text());
+                DrawTextA(cd->hdc, headerText, -1, &rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                return CDRF_SKIPDEFAULT;
+            }
+            default:
+                break;
+        }
+        return CDRF_DODEFAULT;
+    }
+
+    return CDRF_DODEFAULT;
+}
+
 long long __stdcall ProjectsPanel::wndProc(void* hwndPtr, unsigned int msg,
                                             unsigned long long wParam,
                                             long long lParam) {
@@ -483,6 +646,15 @@ long long __stdcall ProjectsPanel::wndProc(void* hwndPtr, unsigned int msg,
 
     if (self) {
         switch (msg) {
+            case WM_DRAWITEM: {
+                auto* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
+                if (dis->CtlType == ODT_BUTTON) {
+                    const DarkButton* b = findDarkButton(dis->hwndItem);
+                    theme::paintDarkButton(*dis, b != nullptr && b->hover);
+                    return TRUE;
+                }
+                break;
+            }
             case WM_COMMAND: {
                 const int id = LOWORD(wParam);
                 if (id == kIdNew) self->newProject();
@@ -493,6 +665,9 @@ long long __stdcall ProjectsPanel::wndProc(void* hwndPtr, unsigned int msg,
             }
             case WM_NOTIFY: {
                 auto* nm = reinterpret_cast<NMHDR*>(lParam);
+                if (nm->code == NM_CUSTOMDRAW) {
+                    return self->customDraw(nm);
+                }
                 if (nm->idFrom == kIdList) {
                     if (nm->code == LVN_ITEMCHANGED) {
                         self->onSelectionChanged();

@@ -6,9 +6,11 @@ rutas de portabilidad a Linux y Android.
 ## Estado actual
 
 Fase: **1 — ventana y cámara** (en curso). El `.exe` arranca en un **panel de
-proyectos** (Win32 nativo) donde puedes crear, abrir, renombrar y borrar
-proyectos; al abrir uno entra la vista 3D con rejilla y cámara libre
-(WASD + click derecho para mirar + scroll para zoom). **Esc** vuelve al panel.
+proyectos** con interfaz **oscura** (fondo negro, texto blanco, botones
+redondeados) donde puedes crear, abrir, renombrar y borrar proyectos; al
+abrir uno entra la vista 3D con rejilla y cámara libre (WASD + Q/E para
+bajar/subir, click derecho para mirar, scroll para zoom). **Esc** vuelve al
+panel.
 
 | Componente | Versión | Notas |
 |---|---|---|
