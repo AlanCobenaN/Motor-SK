@@ -28,8 +28,9 @@ public:
     bool mouseRightDown() const { return rmbDown_; }
 
     // Delta acumulado desde la última consulta y rueda acumulada.
-    Vec2 consumeMouseDelta();
-    float consumeWheel();
+    // Son "consume": vacian el acumulador para el próximo frame.
+    Vec2 consumeMouseDelta() const;
+    float consumeWheel() const;
 
     int framebufferWidth() const { return width_; }
     int framebufferHeight() const { return height_; }
@@ -44,7 +45,7 @@ public:
     void* nativeHandle() const { return hwnd_; }
 
 private:
-    static long __stdcall wndProc(void* hwnd, unsigned int msg, unsigned long long wParam, long long lParam);
+    static long long __stdcall wndProc(void* hwnd, unsigned int msg, unsigned long long wParam, long long lParam);
 
     void* hwnd_ = nullptr;
     void* instance_ = nullptr;
@@ -54,8 +55,8 @@ private:
     bool resized_ = false;
 
     bool tracking_ = false;
-    Vec2 pendingDelta_;
-    float pendingWheel_ = 0.0f;
+    mutable Vec2 pendingDelta_;
+    mutable float pendingWheel_ = 0.0f;
     int lastX_ = 0;
     int lastY_ = 0;
 

@@ -84,19 +84,19 @@ bool Window::keyDown(int vk) const {
     return (GetAsyncKeyState(vk) & 0x8000) != 0;
 }
 
-Vec2 Window::consumeMouseDelta() {
+Vec2 Window::consumeMouseDelta() const {
     Vec2 d = pendingDelta_;
     pendingDelta_ = {};
     return d;
 }
 
-float Window::consumeWheel() {
+float Window::consumeWheel() const {
     float w = pendingWheel_;
     pendingWheel_ = 0.0f;
     return w;
 }
 
-long __stdcall Window::wndProc(void* hwndPtr, unsigned int msg, unsigned long long wParam, long long lParam) {
+long long __stdcall Window::wndProc(void* hwndPtr, unsigned int msg, unsigned long long wParam, long long lParam) {
     HWND hwnd = static_cast<HWND>(hwndPtr);
     Window* self = reinterpret_cast<Window*>(GetWindowLongPtrA(hwnd, GWLP_USERDATA));
 

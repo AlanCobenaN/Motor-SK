@@ -11,12 +11,12 @@
 
 Ejecutable `.exe` con:
 
-- [ ] Ventana Win32 con swapchain de Vulkan
+- [x] Ventana Win32 con swapchain de Vulkan (resize incluido)
 - [ ] Panel simple con la lista de proyectos (carpeta de proyectos)
 - [ ] Abrir un archivo/archivo de escena
-- [ ] Cámara libre: WASD para moverse, click derecho para mirar, scroll para
+- [x] Cámara libre: WASD para moverse, click derecho para mirar, scroll para
       acercar/alejar
-- [ ] Rejilla de referencia en el suelo (para percibir el movimiento)
+- [x] Rejilla de referencia en el suelo (para percibir el movimiento)
 
 ## Fase 2 — Render básico
 
