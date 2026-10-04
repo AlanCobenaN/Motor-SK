@@ -16,6 +16,9 @@ Ejecutable `.exe` con:
       borrar y lista de recientes. Raíz fija: `Documentos\Motor SK\Proyectos`
 - [x] Interfaz modo oscuro: fondo negro, texto blanco, botones redondeados
       (owner-draw), lista y cabeceras oscuras, barra de título oscura
+- [x] Aplicación de ventana sin consola (errores fatales en MessageBox)
+- [x] Tabla con márgenes, esquinas redondeadas y marco; tipografía Segoe UI
+      (16px, cabeceras semibold)
 - [x] Abrir un proyecto → vista 3D (Esc vuelve al panel)
 - [ ] Abrir un archivo/archivo de escena
 - [x] Cámara libre: WASD para moverse, click derecho para mirar, scroll para

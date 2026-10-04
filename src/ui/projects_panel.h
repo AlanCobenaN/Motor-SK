@@ -39,6 +39,9 @@ private:
     // Pintado custom (NM_CUSTOMDRAW) de filas y columnas del ListView.
     long long customDraw(void* nm);
 
+    // Esquinas redondeadas del ListView (region Win32).
+    void applyListRegion();
+
     int selectedIndex() const;
     const Project* selectedProject() const;
 

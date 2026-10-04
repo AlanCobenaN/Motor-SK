@@ -35,6 +35,9 @@ target_link_libraries(${PROJECT_NAME} PRIVATE Vulkan::Vulkan comctl32 shell32 gd
 
 if(MSVC)
     target_compile_options(${PROJECT_NAME} PRIVATE /W4)
+    # Aplicacion de ventana: sin consola cmd detras (los logs salen solo
+    # si se redirige la salida: MotorSK.exe > log.txt).
+    target_link_options(${PROJECT_NAME} PRIVATE /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup)
 endif()
 
 # --- Shaders: glslc (del Vulkan SDK) compila GLSL a SPIR-V en cada build ---

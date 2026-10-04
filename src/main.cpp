@@ -67,6 +67,10 @@ int main(int argc, char** argv) {
     sk::Renderer renderer;
     if (!renderer.init(window)) {
         SK_ERROR("No se pudo inicializar el renderer");
+        MessageBoxA(static_cast<HWND>(window.nativeHandle()),
+                    "No se pudo inicializar Vulkan.\n"
+                    "Comprueba que hay un driver o ICD de Vulkan instalado.",
+                    "Motor SK", MB_OK | MB_ICONERROR);
         return 1;
     }
 

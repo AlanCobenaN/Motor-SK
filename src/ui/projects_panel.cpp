@@ -119,28 +119,27 @@ long long __stdcall promptWndProc(void* hwndPtr, unsigned int msg,
     switch (msg) {
         case WM_CREATE: {
             HINSTANCE inst = GetModuleHandleW(nullptr);
-            HFONT font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
 
             HWND label = CreateWindowExA(0, "STATIC", "Nombre:",
                                          WS_CHILD | WS_VISIBLE,
-                                         12, 12, 316, 18, hwnd, nullptr, inst, nullptr);
+                                         12, 14, 326, 20, hwnd, nullptr, inst, nullptr);
             HWND edit = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", "",
                                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
-                                        12, 34, 316, 24, hwnd, nullptr, inst, nullptr);
+                                        12, 40, 326, 30, hwnd, nullptr, inst, nullptr);
             HWND ok = CreateWindowExA(0, "BUTTON", "Aceptar",
                                       WS_CHILD | WS_VISIBLE | WS_TABSTOP |
                                           BS_OWNERDRAW | BS_DEFPUSHBUTTON,
-                                      158, 72, 82, 26, hwnd,
+                                      154, 86, 92, 30, hwnd,
                                       reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDOK)),
                                       inst, nullptr);
             HWND cancel = CreateWindowExA(0, "BUTTON", "Cancelar",
                                           WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
-                                          246, 72, 82, 26, hwnd,
+                                          254, 86, 92, 30, hwnd,
                                           reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDCANCEL)),
                                           inst, nullptr);
 
             for (HWND c : {label, edit}) {
-                SendMessageA(c, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+                SendMessageA(c, WM_SETFONT, reinterpret_cast<WPARAM>(theme::uiFont()), TRUE);
             }
             makeDarkButton(ok);
             makeDarkButton(cancel);
@@ -210,7 +209,7 @@ std::string promptText(HWND owner, const char* title, const char* initial) {
     PromptState state;
     gPrompt = &state;
 
-    RECT rect{0, 0, 344, 112};
+    RECT rect{0, 0, 358, 130};
     DWORD style = WS_POPUP | WS_CAPTION | WS_SYSMENU;
     AdjustWindowRect(&rect, style, FALSE);
 
@@ -301,14 +300,14 @@ bool ProjectsPanel::create(void* parentHwnd, Config* config, OpenHandler onOpen)
     }
 
     HINSTANCE inst = GetModuleHandleW(nullptr);
-    HFONT font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
 
     auto makeButton = [&](const char* text, int id) -> void* {
         HWND b = CreateWindowExA(0, "BUTTON", text,
                                  WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
-                                 0, 0, 92, 26, static_cast<HWND>(hwnd_),
+                                 0, 0, 104, 32, static_cast<HWND>(hwnd_),
                                  reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
                                  inst, nullptr);
+        SendMessageA(b, WM_SETFONT, reinterpret_cast<WPARAM>(theme::uiFont()), TRUE);
         makeDarkButton(b);
         return b;
     };
@@ -318,7 +317,8 @@ bool ProjectsPanel::create(void* parentHwnd, Config* config, OpenHandler onOpen)
     btnDelete_ = makeButton("Borrar", kIdDelete);
     btnOpen_ = makeButton("Abrir", kIdOpen);
 
-    list_ = CreateWindowExA(WS_EX_CLIENTEDGE, "SysListView32", "",
+    // Sin WS_EX_CLIENTEDGE: el marco redondo lo pinta el panel en WM_PAINT.
+    list_ = CreateWindowExA(0, "SysListView32", "",
                             WS_CHILD | WS_VISIBLE | LVS_REPORT |
                                 LVS_SHOWSELALWAYS | LVS_SINGLESEL,
                             0, 0, 100, 100, static_cast<HWND>(hwnd_),
@@ -326,10 +326,14 @@ bool ProjectsPanel::create(void* parentHwnd, Config* config, OpenHandler onOpen)
                             inst, nullptr);
     ListView_SetExtendedListViewStyle(static_cast<HWND>(list_),
                                       LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
-    SendMessageA(static_cast<HWND>(list_), WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    SendMessageA(static_cast<HWND>(list_), WM_SETFONT,
+                 reinterpret_cast<WPARAM>(theme::uiFont()), TRUE);
     ListView_SetBkColor(static_cast<HWND>(list_), theme::listBackground());
     ListView_SetTextBkColor(static_cast<HWND>(list_), theme::listBackground());
     ListView_SetTextColor(static_cast<HWND>(list_), theme::text());
+
+    HWND header = ListView_GetHeader(static_cast<HWND>(list_));
+    SendMessageA(header, WM_SETFONT, reinterpret_cast<WPARAM>(theme::uiHeaderFont()), TRUE);
 
     auto addColumn = [&](int index, const char* text, int width) {
         LVCOLUMNA col{};
@@ -338,9 +342,9 @@ bool ProjectsPanel::create(void* parentHwnd, Config* config, OpenHandler onOpen)
         col.cx = width;
         ListView_InsertColumn(static_cast<HWND>(list_), index, &col);
     };
-    addColumn(0, "Nombre", 200);
-    addColumn(1, "Ultima apertura", 140);
-    addColumn(2, "Ruta", 420);
+    addColumn(0, "Nombre", 220);
+    addColumn(1, "Ultima apertura", 170);
+    addColumn(2, "Ruta", 460);
 
     resize(rc.right, rc.bottom);
     refresh();
@@ -370,11 +374,23 @@ void ProjectsPanel::resize(int width, int height) {
     auto place = [](void* handle, int x, int y, int w, int h) {
         if (handle) MoveWindow(static_cast<HWND>(handle), x, y, w, h, TRUE);
     };
-    place(btnNew_, 8, 8, 92, 26);
-    place(btnRename_, 106, 8, 92, 26);
-    place(btnDelete_, 204, 8, 92, 26);
-    place(btnOpen_, width - 100, 8, 92, 26);
-    place(list_, 8, 44, width - 16, height - 52);
+    place(btnNew_, 12, 12, 104, 32);
+    place(btnRename_, 126, 12, 104, 32);
+    place(btnDelete_, 240, 12, 104, 32);
+    place(btnOpen_, width - 116, 12, 104, 32);
+    place(list_, 12, 60, width - 24, height - 72);
+    applyListRegion();
+}
+
+void ProjectsPanel::applyListRegion() {
+    if (!list_) return;
+    HWND list = static_cast<HWND>(list_);
+    RECT rc{};
+    GetClientRect(list, &rc);
+    if (rc.right <= 0 || rc.bottom <= 0) return;
+    // El sistema toma posesion de la region (la libera el mismo).
+    HRGN region = CreateRoundRectRgn(0, 0, rc.right, rc.bottom, 15, 15);
+    SetWindowRgn(list, region, TRUE);
 }
 
 void ProjectsPanel::refresh() {
@@ -619,7 +635,10 @@ long long ProjectsPanel::customDraw(void* nmPtr) {
                 rc.left += 8;
                 SetBkMode(cd->hdc, TRANSPARENT);
                 SetTextColor(cd->hdc, theme::text());
+                HFONT oldFont = static_cast<HFONT>(
+                    SelectObject(cd->hdc, theme::uiHeaderFont()));
                 DrawTextA(cd->hdc, headerText, -1, &rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                SelectObject(cd->hdc, oldFont);
                 return CDRF_SKIPDEFAULT;
             }
             default:
@@ -646,6 +665,34 @@ long long __stdcall ProjectsPanel::wndProc(void* hwndPtr, unsigned int msg,
 
     if (self) {
         switch (msg) {
+            case WM_PAINT: {
+                // Fondo + marco redondo alrededor del ListView (el list
+                // se pinta encima y solo queda visible la linea exterior).
+                PAINTSTRUCT ps{};
+                HDC hdc = BeginPaint(hwnd, &ps);
+                FillRect(hdc, &ps.rcPaint, theme::backgroundBrush());
+                if (self->list_) {
+                    HWND list = static_cast<HWND>(self->list_);
+                    RECT rc{};
+                    GetWindowRect(list, &rc);
+                    POINT topLeft{rc.left, rc.top};
+                    POINT bottomRight{rc.right, rc.bottom};
+                    ScreenToClient(hwnd, &topLeft);
+                    ScreenToClient(hwnd, &bottomRight);
+                    RECT frame{topLeft.x - 1, topLeft.y - 1,
+                               bottomRight.x + 1, bottomRight.y + 1};
+                    HPEN pen = CreatePen(PS_SOLID, 1, theme::border());
+                    HBRUSH oldBrush = static_cast<HBRUSH>(
+                        SelectObject(hdc, GetStockObject(NULL_BRUSH)));
+                    HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, pen));
+                    RoundRect(hdc, frame.left, frame.top, frame.right, frame.bottom, 16, 16);
+                    SelectObject(hdc, oldBrush);
+                    SelectObject(hdc, oldPen);
+                    DeleteObject(pen);
+                }
+                EndPaint(hwnd, &ps);
+                return 0;
+            }
             case WM_DRAWITEM: {
                 auto* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
                 if (dis->CtlType == ODT_BUTTON) {

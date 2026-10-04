@@ -32,6 +32,24 @@ inline HBRUSH surfaceBrush() {
     return brush;
 }
 
+// Tipografia de la interfaz: Segoe UI (mas grande que el DEFAULT_GUI_FONT).
+inline HFONT uiFont() {
+    static HFONT font = CreateFontW(
+        -16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+        DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+    return font;
+}
+
+// Fuente de las cabeceras del ListView: un punto menor y semibold.
+inline HFONT uiHeaderFont() {
+    static HFONT font = CreateFontW(
+        -15, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+        DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+    return font;
+}
+
 // Barra de titulo oscura (Win10 1809+; en versiones anteriores el
 // atributo se ignora y devolvemos sin mas).
 inline void enableDarkTitleBar(HWND hwnd) {
@@ -67,9 +85,11 @@ inline void paintDarkButton(const DRAWITEMSTRUCT& dis, bool hover) {
     char label[128]{};
     GetWindowTextA(dis.hwndItem, label, static_cast<int>(sizeof(label)));
 
+    HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, uiFont()));
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, (dis.itemState & ODS_DISABLED) ? textDisabled() : text());
     DrawTextA(hdc, label, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    SelectObject(hdc, oldFont);
 }
 
 } // namespace theme

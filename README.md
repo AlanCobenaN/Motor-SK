@@ -27,7 +27,12 @@ cmake -S . -B build
 cmake --build build --config Release
 ```
 
-El ejecutable queda en `build\MotorSK.exe`.
+El ejecutable queda en `build\MotorSK.exe`. Es una aplicación de Windows
+sin consola; para ver los logs redirige la salida:
+
+```bat
+build\Release\MotorSK.exe --frames 30 > log.txt 2>&1
+```
 
 Flags para pruebas:
 
