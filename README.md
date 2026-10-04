@@ -5,10 +5,10 @@ rutas de portabilidad a Linux y Android.
 
 ## Estado actual
 
-Fase: **1 — ventana y cámara** (en curso). El `.exe` abre una ventana con
-swapchain de Vulkan, rejilla de referencia y cámara libre
-(WASD + click derecho para mirar + scroll para zoom). Falta el panel de
-proyectos.
+Fase: **1 — ventana y cámara** (en curso). El `.exe` arranca en un **panel de
+proyectos** (Win32 nativo) donde puedes crear, abrir, renombrar y borrar
+proyectos; al abrir uno entra la vista 3D con rejilla y cámara libre
+(WASD + click derecho para mirar + scroll para zoom). **Esc** vuelve al panel.
 
 | Componente | Versión | Notas |
 |---|---|---|
@@ -27,6 +27,24 @@ cmake --build build --config Release
 
 El ejecutable queda en `build\MotorSK.exe`.
 
+Flags para pruebas:
+
+- `--frames N`: sale tras N frames (smoke test sin interacción)
+- `--proyecto <ruta>`: arranca directamente en la vista 3D de ese proyecto
+
+## Proyectos
+
+- Raíz: `Documentos\Motor SK\Proyectos` (se crea sola en el primer arranque)
+- Un proyecto = carpeta con `proyecto.sk` (texto `clave: valor`):
+
+```
+nombre: Mi Juego
+version: 1
+escena: escenas/inicio.scene
+```
+
+- Recientes (últimas 5): `%APPDATA%\MotorSK\config.txt`
+
 ## Estructura
 
 ```
@@ -34,12 +52,14 @@ Motor-SK/
 ├── CMakeLists.txt      # build (Vulkan + glslc para shaders)
 ├── shaders/            # GLSL (se compilan a SPIR-V en cada build)
 ├── src/
-│   ├── core/           # logging
+│   ├── core/           # logging + config (%APPDATA%, recientes)
 │   ├── math/           # vectores y matrices propios (estilo glm)
 │   ├── platform/       # ventana Win32 e input (capa portable)
+│   ├── project/        # modelo de proyecto (proyecto.sk, CRUD de carpetas)
 │   ├── scene/          # cámara libre
 │   ├── render/         # renderer Vulkan (swapchain, pipeline, rejilla)
-│   └── main.cpp        # bucle principal
+│   ├── ui/             # panel de proyectos (Win32 ListView)
+│   └── main.cpp        # bucle principal (menú ↔ vista 3D)
 └── docs/               # documentación
 ```
 

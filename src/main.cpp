@@ -2,12 +2,16 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
+#include "core/config.h"
 #include "core/log.h"
 #include "math/math.h"
 #include "platform/window.h"
+#include "project/project.h"
 #include "render/renderer.h"
 #include "scene/camera.h"
+#include "ui/projects_panel.h"
 
 namespace {
 
@@ -18,6 +22,16 @@ int parseFramesArg(int argc, char** argv) {
         }
     }
     return -1;
+}
+
+// --proyecto <ruta>: abre un proyecto directamente (para pruebas).
+std::string parseProjectArg(int argc, char** argv) {
+    for (int i = 1; i + 1 < argc; ++i) {
+        if (std::strcmp(argv[i], "--proyecto") == 0) {
+            return argv[i + 1];
+        }
+    }
+    return "";
 }
 
 double nowSeconds() {
@@ -35,6 +49,7 @@ double nowSeconds() {
 
 int main(int argc, char** argv) {
     const int maxFrames = parseFramesArg(argc, argv);
+    const std::string startupProject = parseProjectArg(argc, argv);
 
     // Medal y OBS registran capas implicitas de Vulkan cuyos hooks
     // interceptan la creacion de swapchain y corrompen el heap de este
@@ -45,7 +60,7 @@ int main(int argc, char** argv) {
     SK_INFO("Capas de captura de Medal/OBS desactivadas");
 
     sk::Window window;
-    if (!window.create(1280, 720, "MotorSK")) {
+    if (!window.create(1280, 720, "Motor SK")) {
         return 1;
     }
 
@@ -55,20 +70,79 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    // La carpeta raiz de proyectos se crea sola en el primer arranque.
+    sk::project::ensureRootFolder();
+
+    sk::Config config;
+
+    // modo menu: panel Win32 visible; modo vista3d: render + camara.
+    bool view3d = false;
+    sk::Project active;
+
+    auto openProject = [&](const std::string& folder) {
+        sk::Project p;
+        if (!sk::project::load(folder, p)) {
+            SK_ERROR("No se pudo abrir el proyecto: %s", folder.c_str());
+            return;
+        }
+        config.addRecent(folder);
+        config.save();
+        active = std::move(p);
+        view3d = true;
+        SetWindowTextA(static_cast<HWND>(window.nativeHandle()),
+                       ("Motor SK - " + active.name).c_str());
+        SK_INFO("Proyecto abierto: %s", active.name.c_str());
+    };
+
+    sk::ProjectsPanel panel;
+    if (!panel.create(window.nativeHandle(), &config, openProject)) {
+        renderer.shutdown();
+        window.destroy();
+        return 1;
+    }
+
+    if (!startupProject.empty()) {
+        // Arranque en modo vista 3D (pruebas/atajos).
+        openProject(startupProject);
+        panel.setVisible(false);
+    }
+
     sk::Camera camera;
     const double startTime = nowSeconds();
     double lastTime = startTime;
     int frame = 0;
+    bool escWasDown = false;
 
     while (window.pumpEvents() && (maxFrames < 0 || frame < maxFrames)) {
+        if (window.consumeResized()) {
+            SK_INFO("resize: %dx%d", window.framebufferWidth(), window.framebufferHeight());
+            panel.resize(window.framebufferWidth(), window.framebufferHeight());
+        }
+
+        if (!view3d) {
+            // Menu: solo se procesan mensajes (los controles Win32 pintan
+            // encima; el renderer no se llama hasta abrir un proyecto).
+            ++frame;
+            Sleep(15);
+            continue;
+        }
+
+        // Esc: volver al panel de proyectos.
+        const bool escDown = window.keyDown(VK_ESCAPE);
+        if (escDown && !escWasDown) {
+            view3d = false;
+            panel.setVisible(true);
+            panel.refresh();
+            SetWindowTextA(static_cast<HWND>(window.nativeHandle()), "Motor SK");
+            escWasDown = escDown;
+            continue;
+        }
+        escWasDown = escDown;
+
         const double now = nowSeconds();
         float dt = static_cast<float>(now - lastTime);
         lastTime = now;
         if (dt > 0.1f) dt = 0.1f; // proteccion contra picos (ventana arrastrada)
-
-        if (window.consumeResized()) {
-            SK_INFO("resize: %dx%d", window.framebufferWidth(), window.framebufferHeight());
-        }
 
         camera.update(dt, window);
 
@@ -87,6 +161,7 @@ int main(int argc, char** argv) {
         ++frame;
     }
 
+    panel.destroy();
     renderer.shutdown();
     window.destroy();
 

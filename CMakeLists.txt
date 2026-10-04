@@ -20,13 +20,17 @@ find_package(Vulkan REQUIRED)
 
 add_executable(${PROJECT_NAME}
     src/main.cpp
+    src/core/config.cpp
     src/platform/window.cpp
+    src/project/project.cpp
     src/render/renderer.cpp
+    src/ui/projects_panel.cpp
 )
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE VK_USE_PLATFORM_WIN32_KHR)
 
-target_link_libraries(${PROJECT_NAME} PRIVATE Vulkan::Vulkan)
+# comctl32: ListView; shell32: SHGetFolderPathA (Documentos).
+target_link_libraries(${PROJECT_NAME} PRIVATE Vulkan::Vulkan comctl32 shell32)
 
 if(MSVC)
     target_compile_options(${PROJECT_NAME} PRIVATE /W4)

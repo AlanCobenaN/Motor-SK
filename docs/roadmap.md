@@ -12,7 +12,9 @@
 Ejecutable `.exe` con:
 
 - [x] Ventana Win32 con swapchain de Vulkan (resize incluido)
-- [ ] Panel simple con la lista de proyectos (carpeta de proyectos)
+- [x] Panel de proyectos (Win32 ListView): listar, crear, abrir, renombrar,
+      borrar y lista de recientes. Raíz fija: `Documentos\Motor SK\Proyectos`
+- [x] Abrir un proyecto → vista 3D (Esc vuelve al panel)
 - [ ] Abrir un archivo/archivo de escena
 - [x] Cámara libre: WASD para moverse, click derecho para mirar, scroll para
       acercar/alejar
