@@ -39,7 +39,11 @@ Ejecutable `.exe` con:
 - [x] Objetos 3D "Part": escena propia (Scene/SceneObject con posicion,
        rotacion y escala), el boton Part inserta un cubo sobre la rejilla,
        Explorer anade y selecciona el nodo, Properties refresca el Transform
-- [ ] ModelScript: asociar scripts del organizador con objetos de la escena
+- [x] ModelScript: asociar scripts del organizador con objetos de la escena:
+       fila "Asociado a" en PLACE Properties con boton "Cambiar..." que abre
+       un selector modal de scripts, el CODE muestra el objeto asociado en su
+       Properties, borrar/renombrar scripts remapea (y guarda) las
+       asociaciones, y todo persiste con la escena
 - [ ] Abrir un archivo/archivo de escena
 - [x] Cámara libre: WASD para moverse, click derecho para mirar, scroll para
        acercar/alejar
@@ -54,7 +58,10 @@ Ejecutable `.exe` con:
 
 ## Fase 3 — Escenas y recursos
 
-- [ ] Formato de escena propio (texto, versionado)
+- [x] Formato de escena propio (texto, versionado): `escenas/inicio.scene`
+       con `objeto/posicion/rotacion/escala/script`, version: 1, tolerante a
+       claves desconocidas; se carga al abrir el proyecto y se guarda en cada
+       mutacion (Part, asociacion, renombrar/borrar scripts)
 - [ ] Carga de recursos (mallas, texturas)
 
 ## Futuro
