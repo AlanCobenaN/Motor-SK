@@ -20,6 +20,9 @@ Ejecutable `.exe` con:
 - [x] Tabla con márgenes, esquinas redondeadas y marco; tipografía Segoe UI
       (16px, cabeceras semibold)
 - [x] Abrir un proyecto → vista 3D (Esc vuelve al panel)
+- [x] Divisiones del workspace en la vista 3D: banda superior de altura fija
+       con Objetos / Scripts / GUI (botones redondeados, oscuro, texto blanco)
+       y un area de trabajo debajo; por ahora vacias (solo la division)
 - [ ] Abrir un archivo/archivo de escena
 - [x] Cámara libre: WASD para moverse, click derecho para mirar, scroll para
       acercar/alejar

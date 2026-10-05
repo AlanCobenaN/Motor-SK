@@ -35,11 +35,13 @@ bool Window::create(int width, int height, const char* title) {
     RECT rect{0, 0, width, height};
     AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, FALSE);
 
+    // WS_CLIPCHILDREN: el BitBlt del present de Vulkan no pinta sobre las
+    // ventanas hijas (si no, la banda de pestañas queda tapada cada frame).
     hwnd_ = CreateWindowExA(
         0,
         kWindowClassName,
         title,
-        WS_OVERLAPPEDWINDOW,
+        WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
         CW_USEDEFAULT, CW_USEDEFAULT,
         rect.right - rect.left, rect.bottom - rect.top,
         nullptr, nullptr,

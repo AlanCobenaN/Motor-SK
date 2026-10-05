@@ -25,6 +25,7 @@ add_executable(${PROJECT_NAME}
     src/project/project.cpp
     src/render/renderer.cpp
     src/ui/projects_panel.cpp
+    src/ui/workspace_tabs.cpp
 )
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE VK_USE_PLATFORM_WIN32_KHR)

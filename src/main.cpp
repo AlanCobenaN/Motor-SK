@@ -12,6 +12,7 @@
 #include "render/renderer.h"
 #include "scene/camera.h"
 #include "ui/projects_panel.h"
+#include "ui/workspace_tabs.h"
 
 namespace {
 
@@ -84,6 +85,7 @@ int main(int argc, char** argv) {
     sk::Project active;
 
     sk::ProjectsPanel panel;
+    sk::WorkspaceTabs workspace;
 
     auto openProject = [&](const std::string& folder) {
         sk::Project p;
@@ -96,12 +98,21 @@ int main(int argc, char** argv) {
         active = std::move(p);
         view3d = true;
         panel.setVisible(false);
+        workspace.setVisible(true);
         SetWindowTextA(static_cast<HWND>(window.nativeHandle()),
                        ("Motor SK - " + active.name).c_str());
         SK_INFO("Proyecto abierto: %s", active.name.c_str());
     };
 
     if (!panel.create(window.nativeHandle(), &config, openProject)) {
+        renderer.shutdown();
+        window.destroy();
+        return 1;
+    }
+
+    if (!workspace.create(window.nativeHandle())) {
+    workspace.destroy();
+    panel.destroy();
         renderer.shutdown();
         window.destroy();
         return 1;
@@ -122,6 +133,7 @@ int main(int argc, char** argv) {
         if (window.consumeResized()) {
             SK_INFO("resize: %dx%d", window.framebufferWidth(), window.framebufferHeight());
             panel.resize(window.framebufferWidth(), window.framebufferHeight());
+            workspace.resize(window.framebufferWidth(), window.framebufferHeight());
         }
 
         if (!view3d) {
@@ -138,6 +150,7 @@ int main(int argc, char** argv) {
             view3d = false;
             panel.setVisible(true);
             panel.refresh();
+            workspace.setVisible(false);
             SetWindowTextA(static_cast<HWND>(window.nativeHandle()), "Motor SK");
             escWasDown = escDown;
             continue;

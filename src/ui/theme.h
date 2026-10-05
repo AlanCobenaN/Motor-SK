@@ -32,6 +32,11 @@ inline HBRUSH surfaceBrush() {
     return brush;
 }
 
+inline HBRUSH listBackgroundBrush() {
+    static HBRUSH brush = CreateSolidBrush(listBackground());
+    return brush;
+}
+
 // Tipografia de la interfaz: Segoe UI (mas grande que el DEFAULT_GUI_FONT).
 inline HFONT uiFont() {
     static HFONT font = CreateFontW(
