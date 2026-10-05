@@ -362,6 +362,11 @@ long long __stdcall PlaceView::wndProc(void* hwndPtr, unsigned int msg,
             EndPaint(hwnd, &ps);
             return 0;
         }
+        case WM_DRAWITEM: {
+            auto* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
+            if (ui::paintDarkButton(*dis)) return TRUE;
+            break;
+        }
         case WM_COMMAND: {
             if (!self) break;
             if (LOWORD(wParam) == kIdAssocBtn && HIWORD(wParam) == BN_CLICKED) {
