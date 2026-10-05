@@ -2,14 +2,15 @@
 
 namespace sk {
 
-// Paneles laterales de la division PLACE: el Explorer (arbol de Folders y
-// objetos) a la izquierda y Properties (Transform) a la derecha, sobre la
-// vista 3D. Son dos ventanas hijas de la principal (con WS_CLIPCHILDREN
-// para que el present no las tape).
+// Paneles laterales de la division PLACE: Properties (Transform) a la
+// izquierda y el Explorer (arbol con la raiz dimension01) a la derecha,
+// sobre la vista 3D. Son dos ventanas hijas de la principal (con
+// WS_CLIPCHILDREN para que el present no las tape).
 //
-// Por ahora la estructura es la del spec: Explorer con dos raices
-// (Folders / Objects) y Properties con el bloque Transform de solo lectura
-// hasta que haya objetos en la escena.
+// El Explorer arranca con una unica raiz "dimension01" (la escena del
+// lugar); los objetos se anadiran cuando existan. Properties muestra el
+// bloque Transform de solo lectura hasta que haya objetos que sincronizar
+// con ModelScript.
 class PlaceView {
 public:
     static constexpr int kExplorerWidth = 260;

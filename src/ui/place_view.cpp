@@ -128,8 +128,8 @@ bool PlaceView::create(void* parentHwnd) {
     TreeView_SetBkColor(tree, theme::listBackground());
     TreeView_SetTextColor(tree, theme::text());
     TreeView_SetLineColor(tree, theme::border());
-    addTreeRoot(tree, "Folders");
-    addTreeRoot(tree, "Objects");
+    // Raiz unica por defecto: la dimension/escena del lugar.
+    addTreeRoot(tree, "dimension01");
 
     // Properties: estado + bloque Transform (solo lectura hasta que haya
     // objetos que sincronizar con ModelScript).
@@ -154,8 +154,8 @@ bool PlaceView::create(void* parentHwnd) {
     }
 
     resize(rc.right, rc.bottom);
-    SK_INFO("Paneles PLACE listos (Explorer %d + Properties %d)",
-            kExplorerWidth, kPropertiesWidth);
+    SK_INFO("Paneles PLACE listos (Properties %d izq + Explorer %d der)",
+            kPropertiesWidth, kExplorerWidth);
     return true;
 }
 
@@ -187,9 +187,10 @@ void PlaceView::layoutPanels(int width, int height) {
     int panelH = height - y;
     if (panelH < 0) panelH = 0;
 
-    MoveWindow(static_cast<HWND>(explorer_), 0, y, kExplorerWidth, panelH, TRUE);
-    MoveWindow(static_cast<HWND>(properties_),
-               width - kPropertiesWidth, y, kPropertiesWidth, panelH, TRUE);
+    // Properties a la izquierda, Explorer a la derecha.
+    MoveWindow(static_cast<HWND>(properties_), 0, y, kPropertiesWidth, panelH, TRUE);
+    MoveWindow(static_cast<HWND>(explorer_),
+               width - kExplorerWidth, y, kExplorerWidth, panelH, TRUE);
 
     if (tree_) {
         MoveWindow(static_cast<HWND>(tree_), 6, kHeaderHeight + 6,
