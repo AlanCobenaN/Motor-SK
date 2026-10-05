@@ -4,16 +4,21 @@
 
 namespace sk {
 
-// Barra superior de la vista 3D: las tres divisiones del workspace
-// (PLACE / CODE / GUI) como botones redondeados. Sin area adicional:
-// la vista 3D ocupa el resto de la ventana.
+// Barra superior de la vista 3D, en dos filas dentro de la misma ventana
+// hija:
+//  - fila de atajos (arriba): acciones rapidas estilo Roblox; de momento
+//    solo el boton "Part", que anade un objeto 3D a la escena.
+//  - navbar (abajo): las tres divisiones del workspace (PLACE / CODE /
+//    GUI) como pestanas compactas.
 //
-// Es una ventana hija con wndProc propia (los WM_DRAWITEM/WM_COMMAND de
-// los botones owner-draw no llegan a la ventana principal). Altura fija.
+// Los WM_DRAWITEM/WM_COMMAND de los botones owner-draw llegan aqui (la
+// ventana hija tiene wndProc propia), no a la ventana principal.
 class WorkspaceTabs {
 public:
-    // Alto fijo de la barra de botones.
-    static constexpr int kToolbarHeight = 48;
+    static constexpr int kShortcutHeight = 36;
+    static constexpr int kNavbarHeight = 36;
+    // Alto total de la banda: los paneles PLACE/CODE empiezan aqui.
+    static constexpr int kTopBandHeight = kShortcutHeight + kNavbarHeight;
 
     bool create(void* parentHwnd);
     void destroy();
@@ -27,8 +32,11 @@ public:
     // Se llama cada vez que cambia la division activa.
     void setOnTabChanged(std::function<void(int)> cb) { onTabChanged_ = std::move(cb); }
 
+    // Atajo "Part" de la barra superior: anade un objeto 3D a la escena.
+    void setOnAddPart(std::function<void()> cb) { onAddPart_ = std::move(cb); }
+
     // width/height son los de la ventana principal; la barra solo usa
-    // kToolbarHeight de alto.
+    // kTopBandHeight de alto.
     void resize(int width, int height);
 
 private:
@@ -37,13 +45,16 @@ private:
     void selectTab(int index);
 
     static constexpr int kTabCount = 3;
+    static constexpr int kIdPart = 100;
 
     void* parent_ = nullptr;
     void* hwnd_ = nullptr;
     void* buttons_[kTabCount] = {};
+    void* partButton_ = nullptr;
     int active_ = 0;
     bool visible_ = false;
     std::function<void(int)> onTabChanged_;
+    std::function<void()> onAddPart_;
 };
 
 } // namespace sk

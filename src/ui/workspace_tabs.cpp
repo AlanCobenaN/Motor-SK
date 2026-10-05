@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include "../core/log.h"
+#include "dark_button.h"
 #include "theme.h"
 
 namespace sk {
@@ -13,8 +14,8 @@ const char* kTabsClass = "MotorSKWorkspaceTabs";
 
 const char* kTabNames[] = {"PLACE", "CODE", "GUI"};
 
-// Pinta un tab redondo al estilo del resto de la interfaz: fondo oscuro,
-// texto blanco y bordes redondeados. La division activa va en acento.
+// Pinta una pestana compacta de la navbar: fondo oscuro, texto blanco y
+// bordes redondeados. La division activa va en acento.
 void paintTab(const DRAWITEMSTRUCT& dis, bool active) {
     HDC hdc = dis.hDC;
     RECT rc = dis.rcItem;
@@ -26,7 +27,7 @@ void paintTab(const DRAWITEMSTRUCT& dis, bool active) {
     HPEN pen = CreatePen(PS_SOLID, 1, active ? theme::accent() : theme::border());
     HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(hdc, brush));
     HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, pen));
-    RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, 14, 14);
+    RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, 10, 10);
     SelectObject(hdc, oldBrush);
     SelectObject(hdc, oldPen);
     DeleteObject(pen);
@@ -39,6 +40,36 @@ void paintTab(const DRAWITEMSTRUCT& dis, bool active) {
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, theme::text());
     DrawTextA(hdc, label, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    SelectObject(hdc, oldFont);
+}
+
+// Boton "Part" de la barra de atajos: base de boton oscuro (con hover,
+// via dark_button) y un cubito de acento a la izquierda de la etiqueta.
+void paintPart(const DRAWITEMSTRUCT& dis) {
+    if (!ui::paintDarkButton(dis)) return;
+
+    HDC hdc = dis.hDC;
+    RECT rc = dis.rcItem;
+    HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, theme::uiFont()));
+
+    SIZE sz{};
+    GetTextExtentPoint32A(hdc, "Part", 4, &sz);
+    const int textX = rc.left + ((rc.right - rc.left) - static_cast<int>(sz.cx)) / 2;
+    const int iconX = textX - 18;
+    const int iconY = rc.top + ((rc.bottom - rc.top) - 12) / 2;
+
+    if (iconX > rc.left + 2) {
+        HBRUSH brush = CreateSolidBrush(theme::accent());
+        HPEN pen = CreatePen(PS_SOLID, 1, theme::border());
+        HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(hdc, brush));
+        HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, pen));
+        RoundRect(hdc, iconX, iconY, iconX + 12, iconY + 12, 3, 3);
+        SelectObject(hdc, oldBrush);
+        SelectObject(hdc, oldPen);
+        DeleteObject(pen);
+        DeleteObject(brush);
+    }
+
     SelectObject(hdc, oldFont);
 }
 
@@ -69,17 +100,29 @@ bool WorkspaceTabs::create(void* parentHwnd) {
     HINSTANCE inst = GetModuleHandleW(nullptr);
 
     hwnd_ = CreateWindowExA(0, kTabsClass, "", WS_CHILD,
-                            0, 0, rc.right, kToolbarHeight, parent, nullptr,
+                            0, 0, rc.right, kTopBandHeight, parent, nullptr,
                             inst, this);
     if (!hwnd_) {
         SK_ERROR("WorkspaceTabs: CreateWindowEx fallo (error %lu)", GetLastError());
         return false;
     }
 
+    // Fila de atajos (arriba): solo "Part" de momento.
+    partButton_ = CreateWindowExA(0, "BUTTON", "Part",
+                                  WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
+                                  10, 5, 74, 26,
+                                  static_cast<HWND>(hwnd_),
+                                  reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdPart)),
+                                  inst, nullptr);
+    SendMessageA(static_cast<HWND>(partButton_), WM_SETFONT,
+                 reinterpret_cast<WPARAM>(theme::uiFont()), TRUE);
+    ui::makeDarkButton(static_cast<HWND>(partButton_));
+
+    // Navbar (abajo): pestanas compactas.
     for (int i = 0; i < kTabCount; ++i) {
         buttons_[i] = CreateWindowExA(0, "BUTTON", kTabNames[i],
                                       WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-                                      12 + i * 118, 8, 110, 32,
+                                      10 + i * 82, kShortcutHeight + 6, 76, 24,
                                       static_cast<HWND>(hwnd_),
                                       reinterpret_cast<HMENU>(static_cast<INT_PTR>(i + 1)),
                                       inst, nullptr);
@@ -88,7 +131,7 @@ bool WorkspaceTabs::create(void* parentHwnd) {
     }
 
     resize(rc.right, rc.bottom);
-    SK_INFO("Divisiones del workspace listas (PLACE | CODE | GUI)");
+    SK_INFO("Banda superior lista (atajos + navbar PLACE | CODE | GUI)");
     return true;
 }
 
@@ -97,6 +140,7 @@ void WorkspaceTabs::destroy() {
         DestroyWindow(static_cast<HWND>(hwnd_));
         hwnd_ = nullptr;
         for (int i = 0; i < kTabCount; ++i) buttons_[i] = nullptr;
+        partButton_ = nullptr;
     }
 }
 
@@ -118,20 +162,22 @@ void WorkspaceTabs::selectTab(int index) {
 
 void WorkspaceTabs::resize(int width, int height) {
     if (!hwnd_) return;
-    const int bandHeight = (height < kToolbarHeight) ? height : kToolbarHeight;
+    const int bandHeight = (height < kTopBandHeight) ? height : kTopBandHeight;
     MoveWindow(static_cast<HWND>(hwnd_), 0, 0, width, bandHeight, TRUE);
 
-    const int margin = 12;
+    if (partButton_) {
+        MoveWindow(static_cast<HWND>(partButton_), 10, 5, 74, 26, TRUE);
+    }
     for (int i = 0; i < kTabCount; ++i) {
         if (buttons_[i]) {
-            MoveWindow(static_cast<HWND>(buttons_[i]), margin + i * 118, 8, 110, 32, TRUE);
+            MoveWindow(static_cast<HWND>(buttons_[i]),
+                       10 + i * 82, kShortcutHeight + 6, 76, 24, TRUE);
         }
     }
 }
 
 long long __stdcall WorkspaceTabs::wndProc(void* hwndPtr, unsigned int msg,
-                                            unsigned long long wParam,
-                                            long long lParam) {
+                                           unsigned long long wParam, long long lParam) {
     HWND hwnd = static_cast<HWND>(hwndPtr);
     WorkspaceTabs* self =
         reinterpret_cast<WorkspaceTabs*>(GetWindowLongPtrA(hwnd, GWLP_USERDATA));
@@ -146,6 +192,10 @@ long long __stdcall WorkspaceTabs::wndProc(void* hwndPtr, unsigned int msg,
         switch (msg) {
             case WM_DRAWITEM: {
                 auto* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
+                if (dis->CtlID == kIdPart) {
+                    paintPart(*dis);
+                    return TRUE;
+                }
                 const int index = static_cast<int>(dis->CtlID) - 1;
                 if (index >= 0 && index < kTabCount) {
                     paintTab(*dis, index == self->active_);
@@ -154,8 +204,13 @@ long long __stdcall WorkspaceTabs::wndProc(void* hwndPtr, unsigned int msg,
                 break;
             }
             case WM_COMMAND: {
-                if (HIWORD(wParam) == BN_CLICKED) {
-                    self->selectTab(static_cast<int>(LOWORD(wParam)) - 1);
+                const int id = static_cast<int>(LOWORD(wParam));
+                if (id == kIdPart) {
+                    if (self->onAddPart_) self->onAddPart_();
+                    return 0;
+                }
+                if (HIWORD(wParam) == BN_CLICKED && id >= 1 && id <= kTabCount) {
+                    self->selectTab(id - 1);
                     return 0;
                 }
                 break;

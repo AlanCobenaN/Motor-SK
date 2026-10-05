@@ -1,5 +1,10 @@
 #pragma once
 
+#include <functional>
+#include <string>
+
+#include "../scene/scene.h"
+
 namespace sk {
 
 // Paneles laterales de la division PLACE: Properties (Transform) a la
@@ -8,9 +13,9 @@ namespace sk {
 // WS_CLIPCHILDREN para que el present no las tape).
 //
 // El Explorer arranca con una unica raiz "dimension01" (la escena del
-// lugar); los objetos se anadiran cuando existan. Properties muestra el
-// bloque Transform de solo lectura hasta que haya objetos que sincronizar
-// con ModelScript.
+// lugar) y recibe los objetos anadidos con addObject(). Properties
+// muestra el Transform del objeto seleccionado (o la raiz). La
+// asociacion de scripts con objetos llega con ModelScript.
 class PlaceView {
 public:
     static constexpr int kExplorerWidth = 260;
@@ -23,19 +28,40 @@ public:
     bool visible() const { return visible_; }
 
     // width/height son los de la ventana principal; los paneles ocupan
-    // desde kToolbarHeight hasta el borde inferior.
+    // desde WorkspaceTabs::kTopBandHeight hasta el borde inferior.
     void resize(int width, int height);
+
+    // Explorer: inserta un hijo bajo dimension01 y lo selecciona (lo que
+    // dispara onSelectionChanged). clearObjects quita todos los hijos
+    // y vuelve a seleccionar la raiz.
+    void addObject(const std::string& name);
+    void clearObjects();
+
+    // Properties: refresca el panel con el objeto, la raiz o el estado
+    // "Sin objeto seleccionado".
+    void showObject(const SceneObject& object);
+    void showRoot();
+    void showNoSelection();
+
+    // Se invoca con el nombre del nodo seleccionado ("" si no hay
+    // seleccion). El dueno decide que hacer con la escena.
+    void setOnSelectionChanged(std::function<void(const std::string&)> cb) {
+        onSelectionChanged_ = std::move(cb);
+    }
 
 private:
     static long long __stdcall wndProc(void* hwnd, unsigned int msg,
                                        unsigned long long wParam, long long lParam);
     void layoutPanels(int width, int height);
+    void notifySelection();
 
     void* parent_ = nullptr;
     void* explorer_ = nullptr;
     void* properties_ = nullptr;
     void* tree_ = nullptr;
+    void* root_ = nullptr;   // HTREEITEM de dimension01
     bool visible_ = false;
+    std::function<void(const std::string&)> onSelectionChanged_;
 };
 
 } // namespace sk

@@ -73,11 +73,58 @@ inline Mat4 operator*(const Mat4& a, const Mat4& b) {
     return r;
 }
 
+inline constexpr float kPi = 3.14159265358979323846f;
+
+inline float radians(float degrees) { return degrees * (kPi / 180.0f); }
+
 inline Mat4 translate(const Vec3& t) {
     Mat4 r = Mat4::identity();
     r.at(3, 0) = t.x;
     r.at(3, 1) = t.y;
     r.at(3, 2) = t.z;
+    return r;
+}
+
+inline Mat4 scale(const Vec3& s) {
+    Mat4 r = Mat4::identity();
+    r.at(0, 0) = s.x;
+    r.at(1, 1) = s.y;
+    r.at(2, 2) = s.z;
+    return r;
+}
+
+// Rotaciones elementales (grados, dextrorasas, almacenamiento columna
+// mayor como el resto del archivo).
+inline Mat4 rotateX(float degrees) {
+    const float c = std::cos(radians(degrees));
+    const float s = std::sin(radians(degrees));
+    Mat4 r = Mat4::identity();
+    r.at(1, 1) = c;
+    r.at(1, 2) = -s;
+    r.at(2, 1) = s;
+    r.at(2, 2) = c;
+    return r;
+}
+
+inline Mat4 rotateY(float degrees) {
+    const float c = std::cos(radians(degrees));
+    const float s = std::sin(radians(degrees));
+    Mat4 r = Mat4::identity();
+    r.at(0, 0) = c;
+    r.at(2, 0) = s;
+    r.at(0, 2) = -s;
+    r.at(2, 2) = c;
+    return r;
+}
+
+inline Mat4 rotateZ(float degrees) {
+    const float c = std::cos(radians(degrees));
+    const float s = std::sin(radians(degrees));
+    Mat4 r = Mat4::identity();
+    r.at(0, 0) = c;
+    r.at(1, 0) = -s;
+    r.at(0, 1) = s;
+    r.at(1, 1) = c;
     return r;
 }
 
@@ -109,9 +156,5 @@ inline Mat4 lookAt(const Vec3& eye, const Vec3& target, const Vec3& up) {
     r.at(3, 2) = dot(f, eye);
     return r;
 }
-
-inline constexpr float kPi = 3.14159265358979323846f;
-
-inline float radians(float degrees) { return degrees * (kPi / 180.0f); }
 
 } // namespace sk

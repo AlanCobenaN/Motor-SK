@@ -67,8 +67,9 @@ bool Renderer::init(Window& window) {
     if (!createRenderPass()) return false;
     if (!createDepthResources()) return false;
     if (!createFramebuffers()) return false;
-    if (!createPipeline()) return false;
+    if (!createPipelines()) return false;
     if (!createGridBuffers()) return false;
+    if (!createCubeBuffer()) return false;
     if (!createCommandPool()) return false;
     if (!createSyncObjects()) return false;
     SK_INFO("Renderer Vulkan listo");
@@ -82,7 +83,10 @@ void Renderer::shutdown() {
 
     if (gridBuffer_ != VK_NULL_HANDLE) vkDestroyBuffer(device_, gridBuffer_, nullptr);
     if (gridMemory_ != VK_NULL_HANDLE) vkFreeMemory(device_, gridMemory_, nullptr);
+    if (cubeBuffer_ != VK_NULL_HANDLE) vkDestroyBuffer(device_, cubeBuffer_, nullptr);
+    if (cubeMemory_ != VK_NULL_HANDLE) vkFreeMemory(device_, cubeMemory_, nullptr);
     if (pipeline_ != VK_NULL_HANDLE) vkDestroyPipeline(device_, pipeline_, nullptr);
+    if (meshPipeline_ != VK_NULL_HANDLE) vkDestroyPipeline(device_, meshPipeline_, nullptr);
     if (pipelineLayout_ != VK_NULL_HANDLE) vkDestroyPipelineLayout(device_, pipelineLayout_, nullptr);
     if (renderPass_ != VK_NULL_HANDLE) vkDestroyRenderPass(device_, renderPass_, nullptr);
 
@@ -548,13 +552,9 @@ bool Renderer::loadShaderModule(const char* path, VkShaderModule* out) const {
     return true;
 }
 
-bool Renderer::createPipeline() {
-    VkShaderModule vertModule = VK_NULL_HANDLE;
-    VkShaderModule fragModule = VK_NULL_HANDLE;
-    if (!loadShaderModule("shaders/grid.spv", &vertModule)) return false;
-    if (!loadShaderModule("shaders/grid.frag.spv", &fragModule)) return false;
-
-    // Push constant: MVP de 4x4 float (64 bytes).
+bool Renderer::createPipelineLayout() {
+    // Push constant: MVP de 4x4 float (64 bytes), compartido por los dos
+    // pipelines (lineas y triangulos).
     VkPushConstantRange pushRange{};
     pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     pushRange.offset = 0;
@@ -564,6 +564,14 @@ bool Renderer::createPipeline() {
     layoutCi.pushConstantRangeCount = 1;
     layoutCi.pPushConstantRanges = &pushRange;
     VK_CHECK(vkCreatePipelineLayout(device_, &layoutCi, nullptr, &pipelineLayout_));
+    return true;
+}
+
+bool Renderer::createPipelineFor(VkPrimitiveTopology topology, VkPipeline* outPipeline) {
+    VkShaderModule vertModule = VK_NULL_HANDLE;
+    VkShaderModule fragModule = VK_NULL_HANDLE;
+    if (!loadShaderModule("shaders/grid.spv", &vertModule)) return false;
+    if (!loadShaderModule("shaders/grid.frag.spv", &fragModule)) return false;
 
     VkPipelineShaderStageCreateInfo stages[2]{};
     stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -594,7 +602,7 @@ bool Renderer::createPipeline() {
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly{
         VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
-    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+    inputAssembly.topology = topology;
 
     VkPipelineViewportStateCreateInfo viewport{
         VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
@@ -652,15 +660,23 @@ bool Renderer::createPipeline() {
     pipelineCi.subpass = 0;
 
     const VkResult result = vkCreateGraphicsPipelines(
-        device_, VK_NULL_HANDLE, 1, &pipelineCi, nullptr, &pipeline_);
+        device_, VK_NULL_HANDLE, 1, &pipelineCi, nullptr, outPipeline);
 
     vkDestroyShaderModule(device_, vertModule, nullptr);
     vkDestroyShaderModule(device_, fragModule, nullptr);
 
     if (result != VK_SUCCESS) {
-        SK_ERROR("vkCreateGraphicsPipelines = %d", (int)result);
+        SK_ERROR("vkCreateGraphicsPipelines(topology %d) = %d",
+                 (int)topology, (int)result);
         return false;
     }
+    return true;
+}
+
+bool Renderer::createPipelines() {
+    if (!createPipelineLayout()) return false;
+    if (!createPipelineFor(VK_PRIMITIVE_TOPOLOGY_LINE_LIST, &pipeline_)) return false;
+    if (!createPipelineFor(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, &meshPipeline_)) return false;
     return true;
 }
 
@@ -694,29 +710,71 @@ bool Renderer::createGridBuffers() {
     line(0.0f, 0.0f, 0.0f, 0.0f, 5.0f, 0.0f, 0.30f, 0.90f, 0.35f);
 
     gridVertexCount_ = static_cast<uint32_t>(vertices.size());
-    const VkDeviceSize bufferSize = sizeof(Vertex) * vertices.size();
+    return createVertexBuffer(vertices.data(), sizeof(Vertex) * vertices.size(),
+                              &gridBuffer_, &gridMemory_);
+}
 
+bool Renderer::createCubeBuffer() {
+    // Cubo unitario centrado en el origen; cada cara con un gris distinto
+    // para que se lea el volumen. 36 vertices (2 triangulos por cara).
+    constexpr float p = 0.5f;
+    const float shades[6] = {0.62f, 0.55f, 0.85f, 0.35f, 0.70f, 0.45f};
+
+    // Cuatro esquinas por cara, recorriendo el contorno (la diagonal del
+    // split es v0-v2). Cull desactivado, asi que el sentido no importa.
+    const float faces[6][4][3] = {
+        {{p, -p, -p}, {p, p, -p}, {p, p, p}, {p, -p, p}},       // +X
+        {{-p, -p, p}, {-p, p, p}, {-p, p, -p}, {-p, -p, -p}},   // -X
+        {{-p, p, -p}, {-p, p, p}, {p, p, p}, {p, p, -p}},       // +Y
+        {{-p, -p, p}, {-p, -p, -p}, {p, -p, -p}, {p, -p, p}},   // -Y
+        {{-p, -p, p}, {p, -p, p}, {p, p, p}, {-p, p, p}},       // +Z
+        {{p, -p, -p}, {-p, -p, -p}, {-p, p, -p}, {p, p, -p}},   // -Z
+    };
+
+    std::vector<Vertex> vertices;
+    vertices.reserve(36);
+    for (int face = 0; face < 6; ++face) {
+        const float s = shades[face];
+        const auto push = [&](int corner) {
+            const float* v = faces[face][corner];
+            vertices.push_back({{v[0], v[1], v[2]}, {s, s, s}});
+        };
+        push(0);
+        push(1);
+        push(2);
+        push(0);
+        push(2);
+        push(3);
+    }
+
+    cubeVertexCount_ = static_cast<uint32_t>(vertices.size());
+    return createVertexBuffer(vertices.data(), sizeof(Vertex) * vertices.size(),
+                              &cubeBuffer_, &cubeMemory_);
+}
+
+bool Renderer::createVertexBuffer(const void* vertices, size_t vertexBytes,
+                                  VkBuffer* outBuffer, VkDeviceMemory* outMemory) {
     VkBufferCreateInfo bufferCi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    bufferCi.size = bufferSize;
+    bufferCi.size = vertexBytes;
     bufferCi.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
     bufferCi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    VK_CHECK(vkCreateBuffer(device_, &bufferCi, nullptr, &gridBuffer_));
+    VK_CHECK(vkCreateBuffer(device_, &bufferCi, nullptr, outBuffer));
 
     VkMemoryRequirements memReqs{};
-    vkGetBufferMemoryRequirements(device_, gridBuffer_, &memReqs);
+    vkGetBufferMemoryRequirements(device_, *outBuffer, &memReqs);
 
     VkMemoryAllocateInfo allocInfo{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
     allocInfo.allocationSize = memReqs.size;
     allocInfo.memoryTypeIndex = findMemoryType(
         memReqs.memoryTypeBits,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-    VK_CHECK(vkAllocateMemory(device_, &allocInfo, nullptr, &gridMemory_));
-    VK_CHECK(vkBindBufferMemory(device_, gridBuffer_, gridMemory_, 0));
+    VK_CHECK(vkAllocateMemory(device_, &allocInfo, nullptr, outMemory));
+    VK_CHECK(vkBindBufferMemory(device_, *outBuffer, *outMemory, 0));
 
     void* data = nullptr;
-    VK_CHECK(vkMapMemory(device_, gridMemory_, 0, bufferSize, 0, &data));
-    std::memcpy(data, vertices.data(), static_cast<size_t>(bufferSize));
-    vkUnmapMemory(device_, gridMemory_);
+    VK_CHECK(vkMapMemory(device_, *outMemory, 0, vertexBytes, 0, &data));
+    std::memcpy(data, vertices, vertexBytes);
+    vkUnmapMemory(device_, *outMemory);
     return true;
 }
 
@@ -802,7 +860,7 @@ bool Renderer::recreateSwapchain() {
     return true;
 }
 
-bool Renderer::drawFrame(const Mat4& viewProj) {
+bool Renderer::drawFrame(const Mat4& viewProj, const std::vector<Mat4>& objects) {
     if (swapchainDirty_ && !recreateSwapchain()) return false;
     if (swapchain_ == VK_NULL_HANDLE) return true; // ventana minimizada
 
@@ -863,6 +921,23 @@ bool Renderer::drawFrame(const Mat4& viewProj) {
     vkCmdPushConstants(command, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT,
                        0, sizeof(float) * 16, &viewProj);
     vkCmdDraw(command, gridVertexCount_, 1, 0, 0);
+
+    // Objetos "Part": mismo shader y push constant, pero la matriz ya
+    // viene multiplicada (viewProj * model) y el pipeline es de
+    // triangulos.
+    if (!objects.empty() && meshPipeline_ != VK_NULL_HANDLE) {
+        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, meshPipeline_);
+        const VkBuffer meshBuffer = cubeBuffer_;
+        const VkDeviceSize meshOffset = 0;
+        vkCmdBindVertexBuffers(command, 0, 1, &meshBuffer, &meshOffset);
+
+        for (const Mat4& model : objects) {
+            const Mat4 mvp = viewProj * model;
+            vkCmdPushConstants(command, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT,
+                               0, sizeof(float) * 16, &mvp);
+            vkCmdDraw(command, cubeVertexCount_, 1, 0, 0);
+        }
+    }
 
     vkCmdEndRenderPass(command);
     VK_CHECK(vkEndCommandBuffer(command));

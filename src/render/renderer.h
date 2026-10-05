@@ -9,21 +9,23 @@
 
 namespace sk {
 
-// Renderer Vulkan minimo: instancia, dispositivo, swapchain y un pipeline
-// de lineas para dibujar la rejilla de referencia del mundo.
+// Renderer Vulkan minimo: instancia, dispositivo, swapchain y dos
+// pipelines: lineas (rejilla de referencia del mundo) y triangulos (los
+// objetos "Part" de la escena).
 //
 // Decisiones (fase 1):
 //  - 2 frames en vuelo (std::vector de sync objects por frame)
 //  - MVP via push constant (sin uniform buffers ni descriptor sets todavia)
-//  - buffers de vertices host-visible (la rejilla es estatica y pequena)
+//  - buffers de vertices host-visible (la rejilla y los cubos son
+//    estaticos y pequenos)
 class Renderer {
 public:
     bool init(Window& window);
     void shutdown();
 
     // Devuelve false solo en error irrecuperable; los resize se resuelven
-    // recreando la swapchain.
-    bool drawFrame(const Mat4& viewProj);
+    // recreando la swapchain. objects: matriz modelo de cada Part.
+    bool drawFrame(const Mat4& viewProj, const std::vector<Mat4>& objects);
 
     // WM_SIZE de la ventana: llvmpipe no devuelve OUT_OF_DATE al
     // redimensionar, asi que hay que marcar la swapchain a mano.
@@ -51,8 +53,13 @@ private:
     bool createRenderPass();
     bool createDepthResources();
     bool createFramebuffers();
-    bool createPipeline();
+    bool createPipelineLayout();
+    bool createPipelineFor(VkPrimitiveTopology topology, VkPipeline* outPipeline);
+    bool createPipelines();
     bool createGridBuffers();
+    bool createCubeBuffer();
+    bool createVertexBuffer(const void* vertices, size_t vertexBytes,
+                            VkBuffer* outBuffer, VkDeviceMemory* outMemory);
     bool createCommandPool();
     bool createSyncObjects();
     bool recreateSwapchain();
@@ -91,11 +98,16 @@ private:
     VkImageView depthView_ = VK_NULL_HANDLE;
 
     VkPipelineLayout pipelineLayout_ = VK_NULL_HANDLE;
-    VkPipeline pipeline_ = VK_NULL_HANDLE;
+    VkPipeline pipeline_ = VK_NULL_HANDLE;      // lineas (rejilla)
+    VkPipeline meshPipeline_ = VK_NULL_HANDLE;  // triangulos (Part)
 
     VkBuffer gridBuffer_ = VK_NULL_HANDLE;
     VkDeviceMemory gridMemory_ = VK_NULL_HANDLE;
     uint32_t gridVertexCount_ = 0;
+
+    VkBuffer cubeBuffer_ = VK_NULL_HANDLE;
+    VkDeviceMemory cubeMemory_ = VK_NULL_HANDLE;
+    uint32_t cubeVertexCount_ = 0;
 
     VkCommandPool commandPool_ = VK_NULL_HANDLE;
     std::vector<VkCommandBuffer> commandBuffers_;

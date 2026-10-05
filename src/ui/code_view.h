@@ -6,10 +6,11 @@ namespace sk {
 
 struct Project;
 
-// Division CODE: organizador de scripts. Panel izquierdo con el arbol de
+// Division CODE: organizador de scripts. Panel izquierdo con los datos
+// del nodo seleccionado (Properties) y panel derecho con el arbol de
 // scripts (Server/Shared/Player/Character, carpetas anidadas y scripts
-// .sk) y botones de accion; panel derecho con los datos del nodo
-// seleccionado. Los archivos viven en la carpeta scripts/ del proyecto.
+// .sk) y botones de accion. Los archivos viven en la carpeta scripts/
+// del proyecto.
 //
 // La asociacion de scripts con objetos de la escena llega con ModelScript.
 class CodeView {

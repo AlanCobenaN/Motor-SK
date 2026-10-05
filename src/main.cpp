@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "core/config.h"
 #include "core/log.h"
@@ -11,6 +12,7 @@
 #include "project/project.h"
 #include "render/renderer.h"
 #include "scene/camera.h"
+#include "scene/scene.h"
 #include "ui/code_view.h"
 #include "ui/place_view.h"
 #include "ui/projects_panel.h"
@@ -92,6 +94,7 @@ int main(int argc, char** argv) {
     // modo menu: panel Win32 visible; modo vista3d: render + camara.
     bool view3d = false;
     sk::Project active;
+    sk::Scene scene;   // objetos Part de la division PLACE
 
     sk::ProjectsPanel panel;
     sk::WorkspaceTabs workspace;
@@ -107,6 +110,8 @@ int main(int argc, char** argv) {
         config.addRecent(folder);
         config.save();
         active = std::move(p);
+        scene.clear();
+        place.clearObjects();   // Explorer vuelve a solo dimension01
         view3d = true;
         panel.setVisible(false);
         workspace.setVisible(true);
@@ -157,6 +162,29 @@ int main(int argc, char** argv) {
     workspace.setOnTabChanged([&](int tab) {
         place.setVisible(tab == 0);
         code.setVisible(tab == 1);
+    });
+
+    // Atajo "Part": anade el objeto a la escena y al Explorer (insertar
+    // lo selecciona, lo que refresca Properties via onSelectionChanged).
+    workspace.setOnAddPart([&]() {
+        const std::string name = scene.addPart().name;
+        place.addObject(name);
+        SK_INFO("Part anadido: %s", name.c_str());
+    });
+
+    // Seleccion en el Explorer -> Properties (objetos de la escena o la
+    // raiz dimension01).
+    place.setOnSelectionChanged([&](const std::string& name) {
+        if (name.empty()) {
+            place.showNoSelection();
+            return;
+        }
+        const sk::SceneObject* object = scene.findByName(name);
+        if (object) {
+            place.showObject(*object);
+        } else {
+            place.showRoot();
+        }
     });
 
     if (!startupProject.empty()) {
@@ -217,7 +245,13 @@ int main(int argc, char** argv) {
         const sk::Mat4 projection = sk::perspective(sk::radians(60.0f), aspect, 0.1f, 200.0f);
         const sk::Mat4 viewProj = projection * camera.view();
 
-        if (!renderer.drawFrame(viewProj)) {
+        std::vector<sk::Mat4> models;
+        models.reserve(scene.objects().size());
+        for (const sk::SceneObject& object : scene.objects()) {
+            models.push_back(object.modelMatrix());
+        }
+
+        if (!renderer.drawFrame(viewProj, models)) {
             SK_ERROR("drawFrame fallo");
             return 1;
         }

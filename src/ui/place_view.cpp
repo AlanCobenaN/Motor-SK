@@ -3,7 +3,9 @@
 #include <windows.h>
 #include <commctrl.h>
 
+#include <cstdio>
 #include <cstring>
+#include <string>
 
 #include "../core/log.h"
 #include "theme.h"
@@ -37,7 +39,7 @@ void paintPanelHeader(HDC hdc, const RECT& rc, const char* title) {
     DeleteObject(pen);
 }
 
-void addTreeRoot(HWND tree, const char* text) {
+HTREEITEM addTreeRoot(HWND tree, const char* text) {
     char label[64]{};
     lstrcpynA(label, text, 64);
     TVINSERTSTRUCTA ins{};
@@ -45,7 +47,26 @@ void addTreeRoot(HWND tree, const char* text) {
     ins.hInsertAfter = TVI_LAST;
     ins.item.mask = TVIF_TEXT;
     ins.item.pszText = label;
-    TreeView_InsertItem(tree, &ins);
+    return TreeView_InsertItem(tree, &ins);
+}
+
+// Escribe un campo Transform (ids 200..208) con formato compacto.
+void setTransformField(HWND props, int id, float value) {
+    HWND field = GetDlgItem(props, id);
+    if (!field) return;
+    char buf[32]{};
+    snprintf(buf, sizeof(buf), "%.3g", value);
+    SetWindowTextA(field, buf);
+}
+
+// Transform identico para raiz / sin seleccion: posicion 0, rotacion 0,
+// escala 1.
+void setTransformIdentity(HWND props) {
+    for (int i = 0; i < 3; ++i) {
+        setTransformField(props, 200 + i, 0.0f);
+        setTransformField(props, 203 + i, 0.0f);
+        setTransformField(props, 206 + i, 1.0f);
+    }
 }
 
 HWND makeStatic(HWND parent, HINSTANCE inst, int id, const char* text,
@@ -129,7 +150,7 @@ bool PlaceView::create(void* parentHwnd) {
     TreeView_SetTextColor(tree, theme::text());
     TreeView_SetLineColor(tree, theme::border());
     // Raiz unica por defecto: la dimension/escena del lugar.
-    addTreeRoot(tree, "dimension01");
+    root_ = addTreeRoot(tree, "dimension01");
 
     // Properties: estado + bloque Transform (solo lectura hasta que haya
     // objetos que sincronizar con ModelScript).
@@ -169,6 +190,7 @@ void PlaceView::destroy() {
         properties_ = nullptr;
     }
     tree_ = nullptr;
+    root_ = nullptr;
 }
 
 void PlaceView::setVisible(bool visible) {
@@ -181,9 +203,88 @@ void PlaceView::resize(int width, int height) {
     layoutPanels(width, height);
 }
 
+void PlaceView::addObject(const std::string& name) {
+    if (!tree_ || !root_) return;
+    HWND tree = static_cast<HWND>(tree_);
+
+    char label[64]{};
+    lstrcpynA(label, name.c_str(), 64);
+    TVINSERTSTRUCTA ins{};
+    ins.hParent = static_cast<HTREEITEM>(root_);
+    ins.hInsertAfter = TVI_LAST;
+    ins.item.mask = TVIF_TEXT;
+    ins.item.pszText = label;
+    HTREEITEM item = TreeView_InsertItem(tree, &ins);
+
+    TreeView_Expand(tree, static_cast<HTREEITEM>(root_), TVE_EXPAND);
+    if (item) TreeView_Select(tree, item, TVGN_CARET);
+}
+
+void PlaceView::clearObjects() {
+    if (!tree_ || !root_) return;
+    HWND tree = static_cast<HWND>(tree_);
+
+    HTREEITEM child = TreeView_GetChild(tree, static_cast<HTREEITEM>(root_));
+    while (child) {
+        HTREEITEM next = TreeView_GetNextSibling(tree, child);
+        TreeView_DeleteItem(tree, child);
+        child = next;
+    }
+    TreeView_Select(tree, static_cast<HTREEITEM>(root_), TVGN_CARET);
+}
+
+void PlaceView::showObject(const SceneObject& object) {
+    HWND props = static_cast<HWND>(properties_);
+    if (!props) return;
+    if (HWND status = GetDlgItem(props, 100)) {
+        SetWindowTextA(status, object.name.c_str());
+    }
+    for (int axis = 0; axis < 3; ++axis) {
+        setTransformField(props, 200 + axis, (&object.position.x)[axis]);
+        setTransformField(props, 203 + axis, (&object.rotation.x)[axis]);
+        setTransformField(props, 206 + axis, (&object.scale.x)[axis]);
+    }
+}
+
+void PlaceView::showRoot() {
+    HWND props = static_cast<HWND>(properties_);
+    if (!props) return;
+    if (HWND status = GetDlgItem(props, 100)) {
+        SetWindowTextA(status, "dimension01");
+    }
+    setTransformIdentity(props);
+}
+
+void PlaceView::showNoSelection() {
+    HWND props = static_cast<HWND>(properties_);
+    if (!props) return;
+    if (HWND status = GetDlgItem(props, 100)) {
+        SetWindowTextA(status, "Sin objeto seleccionado");
+    }
+    setTransformIdentity(props);
+}
+
+void PlaceView::notifySelection() {
+    if (!onSelectionChanged_ || !tree_) return;
+    HWND tree = static_cast<HWND>(tree_);
+    HTREEITEM item = TreeView_GetSelection(tree);
+    if (!item) {
+        onSelectionChanged_(std::string());
+        return;
+    }
+    char text[64]{};
+    TVITEMA tvi{};
+    tvi.hItem = item;
+    tvi.mask = TVIF_TEXT;
+    tvi.pszText = text;
+    tvi.cchTextMax = static_cast<int>(sizeof(text));
+    TreeView_GetItem(tree, &tvi);
+    onSelectionChanged_(text);
+}
+
 void PlaceView::layoutPanels(int width, int height) {
     if (!explorer_ || !properties_) return;
-    const int y = WorkspaceTabs::kToolbarHeight;
+    const int y = WorkspaceTabs::kTopBandHeight;
     int panelH = height - y;
     if (panelH < 0) panelH = 0;
 
@@ -225,6 +326,16 @@ long long __stdcall PlaceView::wndProc(void* hwndPtr, unsigned int msg,
 
             EndPaint(hwnd, &ps);
             return 0;
+        }
+        case WM_NOTIFY: {
+            auto* hdr = reinterpret_cast<NMHDR*>(lParam);
+            if (self && self->tree_ &&
+                hdr->hwndFrom == static_cast<HWND>(self->tree_) &&
+                (hdr->code == TVN_SELCHANGEDA || hdr->code == TVN_SELCHANGEDW)) {
+                self->notifySelection();
+                return 0;
+            }
+            break;
         }
         case WM_CTLCOLOREDIT: {
             HDC hdc = reinterpret_cast<HDC>(wParam);

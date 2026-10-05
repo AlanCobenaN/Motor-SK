@@ -1,0 +1,4 @@
+// Icono del programa: logo SK (logo.ico en la raiz del repositorio).
+// rc.exe busca el archivo en el directorio del .rc y en los /I del target
+// (CMake pasa target_include_directories al compilador de recursos).
+1 ICON "logo.ico"

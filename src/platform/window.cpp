@@ -12,6 +12,17 @@ namespace {
 
 const char* kWindowClassName = "MotorSKWindow";
 
+// Icono del programa (recurso 1 definido en app.rc a partir de logo.ico).
+// cx/cy a 0 => tamano estandar (SM_CXICON); LR_SHARED: no hay que
+// destruirlo (vive mientras vive el modulo).
+HICON loadAppIcon(int cx, int cy) {
+    UINT flags = LR_SHARED;
+    if (cx == 0 || cy == 0) flags |= LR_DEFAULTSIZE;
+    return static_cast<HICON>(LoadImageW(GetModuleHandleW(nullptr),
+                                         MAKEINTRESOURCEW(1), IMAGE_ICON,
+                                         cx, cy, flags));
+}
+
 } // namespace
 
 Window::~Window() {
@@ -27,6 +38,8 @@ bool Window::create(int width, int height, const char* title) {
     wc.lpfnWndProc = reinterpret_cast<WNDPROC>(&Window::wndProc);
     wc.hInstance = static_cast<HINSTANCE>(instance_);
     wc.hCursor = LoadCursorA(nullptr, IDC_ARROW);
+    wc.hIcon = loadAppIcon(0, 0);       // LR_DEFAULTSIZE: tamanos estandar
+    wc.hIconSm = loadAppIcon(0, 0);
     wc.lpszClassName = kWindowClassName;
 
     // Registrar dos veces es inofensivo en una sola instancia del exe.
@@ -55,6 +68,17 @@ bool Window::create(int width, int height, const char* title) {
 
     width_ = width;
     height_ = height;
+
+    // Icono explicito de la ventana (barra de tareas / Alt+Tab). Ojo:
+    // no usar el nombre "small" (macro de rpcndr.h: #define small char).
+    const HICON bigIcon = loadAppIcon(GetSystemMetrics(SM_CXICON),
+                                      GetSystemMetrics(SM_CYICON));
+    const HICON smallIcon = loadAppIcon(GetSystemMetrics(SM_CXSMICON),
+                                        GetSystemMetrics(SM_CYSMICON));
+    SendMessageW(static_cast<HWND>(hwnd_), WM_SETICON, ICON_BIG,
+                 reinterpret_cast<LPARAM>(bigIcon));
+    SendMessageW(static_cast<HWND>(hwnd_), WM_SETICON, ICON_SMALL,
+                 reinterpret_cast<LPARAM>(smallIcon));
 
     // Barra de titulo oscura a juego con el tema de la interfaz.
     theme::enableDarkTitleBar(static_cast<HWND>(hwnd_));

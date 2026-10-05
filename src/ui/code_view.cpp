@@ -211,7 +211,7 @@ bool CodeView::create(void* parentHwnd) {
     TreeView_SetTextColor(tree, theme::text());
     TreeView_SetLineColor(tree, theme::border());
 
-    // Panel derecho: etiquetas fijas + valores del nodo seleccionado
+    // Panel izquierdo: etiquetas fijas + valores del nodo seleccionado
     // (el nombre va en un EDIT de solo lectura).
     HWND props = static_cast<HWND>(propsPanel_);
     struct Field {
@@ -299,13 +299,13 @@ void CodeView::resize(int width, int height) {
 
 void CodeView::layoutPanels(int width, int height) {
     if (!scriptsPanel_ || !propsPanel_) return;
-    const int y = WorkspaceTabs::kToolbarHeight;
+    const int y = WorkspaceTabs::kTopBandHeight;
     int panelH = height - y;
     if (panelH < 0) panelH = 0;
 
-    MoveWindow(static_cast<HWND>(scriptsPanel_), 0, y, kTreeWidth, panelH, TRUE);
-    MoveWindow(static_cast<HWND>(propsPanel_),
-               width - kPropsWidth, y, kPropsWidth, panelH, TRUE);
+    MoveWindow(static_cast<HWND>(propsPanel_), 0, y, kPropsWidth, panelH, TRUE);
+    MoveWindow(static_cast<HWND>(scriptsPanel_),
+               width - kTreeWidth, y, kTreeWidth, panelH, TRUE);
 
     if (tree_) {
         MoveWindow(static_cast<HWND>(tree_), 8, 78,

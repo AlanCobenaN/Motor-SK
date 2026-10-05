@@ -10,6 +10,12 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Recursos de Windows (app.rc): icono del .exe. Solo con MSVC, que trae
+# rc.exe; CMake compila los .rc listados en las fuentes del target.
+if(MSVC)
+    enable_language(RC)
+endif()
+
 # El Vulkan SDK de LunarG define VULKAN_SDK al instalar; si la sesion no la
 # tiene (terminales nuevas), se usa la ruta por defecto como hint.
 if(NOT DEFINED ENV{VULKAN_SDK} AND EXISTS "C:/VulkanSDK")
@@ -19,11 +25,13 @@ endif()
 find_package(Vulkan REQUIRED)
 
 add_executable(${PROJECT_NAME}
+    app.rc
     src/main.cpp
     src/core/config.cpp
     src/platform/window.cpp
     src/project/project.cpp
     src/project/scripts.cpp
+    src/scene/scene.cpp
     src/ui/code_view.cpp
     src/render/renderer.cpp
     src/ui/projects_panel.cpp
@@ -32,6 +40,9 @@ add_executable(${PROJECT_NAME}
     src/ui/place_view.cpp
     src/ui/workspace_tabs.cpp
 )
+
+# Para que rc.exe encuentre logo.ico junto al app.rc.
+target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE VK_USE_PLATFORM_WIN32_KHR)
 
