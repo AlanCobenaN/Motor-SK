@@ -10,9 +10,8 @@ namespace sk {
 namespace {
 
 const char* kTabsClass = "MotorSKWorkspaceTabs";
-const char* kAreaClass = "MotorSKWorkspaceArea";
 
-const char* kTabNames[] = {"Objetos", "Scripts", "GUI"};
+const char* kTabNames[] = {"PLACE", "CODE", "GUI"};
 
 // Pinta un tab redondo al estilo del resto de la interfaz: fondo oscuro,
 // texto blanco y bordes redondeados. La division activa va en acento.
@@ -43,16 +42,6 @@ void paintTab(const DRAWITEMSTRUCT& dis, bool active) {
     SelectObject(hdc, oldFont);
 }
 
-// Esquinas redondeadas del area, igual que la lista de proyectos.
-void applyAreaRegion(HWND area) {
-    RECT rc{};
-    GetClientRect(area, &rc);
-    HRGN region = CreateRoundRectRgn(0, 0, rc.right + 1, rc.bottom + 1, 30, 30);
-    if (!SetWindowRgn(area, region, TRUE)) {
-        DeleteObject(region);
-    }
-}
-
 } // namespace
 
 bool WorkspaceTabs::create(void* parentHwnd) {
@@ -71,15 +60,6 @@ bool WorkspaceTabs::create(void* parentHwnd) {
         wc.lpszClassName = kTabsClass;
         RegisterClassExA(&wc);
 
-        WNDCLASSEXA area{};
-        area.cbSize = sizeof(area);
-        area.lpfnWndProc = DefWindowProcA;
-        area.hInstance = inst;
-        area.hCursor = LoadCursorA(nullptr, IDC_ARROW);
-        area.hbrBackground = theme::listBackgroundBrush();
-        area.lpszClassName = kAreaClass;
-        RegisterClassExA(&area);
-
         registered = true;
     }
 
@@ -89,7 +69,7 @@ bool WorkspaceTabs::create(void* parentHwnd) {
     HINSTANCE inst = GetModuleHandleW(nullptr);
 
     hwnd_ = CreateWindowExA(0, kTabsClass, "", WS_CHILD,
-                            0, 0, rc.right, kBandHeight, parent, nullptr,
+                            0, 0, rc.right, kToolbarHeight, parent, nullptr,
                             inst, this);
     if (!hwnd_) {
         SK_ERROR("WorkspaceTabs: CreateWindowEx fallo (error %lu)", GetLastError());
@@ -107,12 +87,8 @@ bool WorkspaceTabs::create(void* parentHwnd) {
                      reinterpret_cast<WPARAM>(theme::uiFont()), TRUE);
     }
 
-    area_ = CreateWindowExA(0, kAreaClass, "", WS_CHILD | WS_VISIBLE,
-                            0, 0, 10, 10, static_cast<HWND>(hwnd_), nullptr,
-                            inst, nullptr);
-
     resize(rc.right, rc.bottom);
-    SK_INFO("Divisiones del workspace listas (Objetos | Scripts | GUI)");
+    SK_INFO("Divisiones del workspace listas (PLACE | CODE | GUI)");
     return true;
 }
 
@@ -120,7 +96,6 @@ void WorkspaceTabs::destroy() {
     if (hwnd_) {
         DestroyWindow(static_cast<HWND>(hwnd_));
         hwnd_ = nullptr;
-        area_ = nullptr;
         for (int i = 0; i < kTabCount; ++i) buttons_[i] = nullptr;
     }
 }
@@ -142,7 +117,7 @@ void WorkspaceTabs::selectTab(int index) {
 
 void WorkspaceTabs::resize(int width, int height) {
     if (!hwnd_) return;
-    const int bandHeight = (height < kBandHeight) ? height : kBandHeight;
+    const int bandHeight = (height < kToolbarHeight) ? height : kToolbarHeight;
     MoveWindow(static_cast<HWND>(hwnd_), 0, 0, width, bandHeight, TRUE);
 
     const int margin = 12;
@@ -150,13 +125,6 @@ void WorkspaceTabs::resize(int width, int height) {
         if (buttons_[i]) {
             MoveWindow(static_cast<HWND>(buttons_[i]), margin + i * 118, 8, 110, 32, TRUE);
         }
-    }
-
-    if (area_) {
-        const int areaY = 8 + 32 + 12;
-        MoveWindow(static_cast<HWND>(area_), margin, areaY,
-                   width - margin * 2, bandHeight - areaY - margin, TRUE);
-        applyAreaRegion(static_cast<HWND>(area_));
     }
 }
 

@@ -139,6 +139,7 @@ int main(int argc, char** argv) {
     while (window.pumpEvents() && (maxFrames < 0 || frame < maxFrames)) {
         if (window.consumeResized()) {
             SK_INFO("resize: %dx%d", window.framebufferWidth(), window.framebufferHeight());
+            renderer.invalidateSwapchain();
             panel.resize(window.framebufferWidth(), window.framebufferHeight());
             workspace.resize(window.framebufferWidth(), window.framebufferHeight());
         }

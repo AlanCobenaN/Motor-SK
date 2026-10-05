@@ -25,6 +25,10 @@ public:
     // recreando la swapchain.
     bool drawFrame(const Mat4& viewProj);
 
+    // WM_SIZE de la ventana: llvmpipe no devuelve OUT_OF_DATE al
+    // redimensionar, asi que hay que marcar la swapchain a mano.
+    void invalidateSwapchain() { swapchainDirty_ = true; }
+
 private:
     struct QueueFamilies {
         int graphics = -1;
