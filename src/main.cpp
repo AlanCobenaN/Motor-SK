@@ -49,6 +49,13 @@ double nowSeconds() {
 } // namespace
 
 int main(int argc, char** argv) {
+    // DPI per-monitor v2: sin esto Windows estira la ventana cuando se
+    // cambia la escala del escritorio y el borde derecho queda con
+    // artefactos. Hay que declararlo antes de crear cualquier ventana.
+    if (!SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) {
+        SetProcessDPIAware();
+    }
+
     const int maxFrames = parseFramesArg(argc, argv);
     const std::string startupProject = parseProjectArg(argc, argv);
 

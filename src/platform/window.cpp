@@ -120,6 +120,17 @@ long long __stdcall Window::wndProc(void* hwndPtr, unsigned int msg, unsigned lo
                 if (self->width_ > 0 && self->height_ > 0) self->resized_ = true;
                 return 0;
             }
+            case WM_DPICHANGED: {
+                // Cambio de escala del escritorio: redimensionar al rect
+                // sugerido por Windows (llega como WM_SIZE y el renderer
+                // y la UI se reajustan solos).
+                const RECT* suggested = reinterpret_cast<const RECT*>(lParam);
+                SetWindowPos(hwnd, nullptr, suggested->left, suggested->top,
+                             suggested->right - suggested->left,
+                             suggested->bottom - suggested->top,
+                             SWP_NOZORDER | SWP_NOACTIVATE);
+                return 0;
+            }
             case WM_RBUTTONDOWN: {
                 self->rmbDown_ = true;
                 self->tracking_ = false;
