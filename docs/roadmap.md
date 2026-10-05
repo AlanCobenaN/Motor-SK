@@ -25,9 +25,10 @@ Ejecutable `.exe` con:
        sin area vacia, la vista 3D ocupa el resto
 - [x] Swapchain se recrea en cada resize (WM_SIZE avisa al renderer; sin
        depender de OUT_OF_DATE, que lavapipe no devuelve)
-- [x] Division PLACE: paneles Explorer (arbol Folders/Objects) y Properties
-       (Transform, solo lectura hasta que haya objetos); visibles solo en
-       PLACE, ocultos en CODE/GUI
+- [x] Division PLACE: paneles Properties (Transform, solo lectura hasta que
+       haya objetos) a la izquierda y Explorer (arbol con raiz unica
+       `dimension01`) a la derecha; visibles solo en PLACE, ocultos en
+       CODE/GUI
 - [x] Division CODE: organizador de scripts (Server/Shared/Player/Character),
        carpetas anidadas, crear script/carpeta, renombrar, borrar con
        confirmacion, raices protegidas, Properties con Nombre/Tipo/Ubicacion;
