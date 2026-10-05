@@ -40,6 +40,10 @@ struct Node {
 // cuatro categorias raiz. Carpetas primero, todo alfabetico.
 std::vector<Node> list(const Project& p, const std::string& rel);
 
+// Todos los scripts .sk del proyecto (recursivo), en orden estable
+// (raices en kRoots, carpetas antes que scripts, alfabetico).
+std::vector<std::string> allScriptRels(const Project& p);
+
 // Primera categoria de una ruta ("Util" -> "Server"; "" si rel es raiz).
 std::string rootOf(const std::string& rel);
 

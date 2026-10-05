@@ -96,6 +96,21 @@ std::vector<Node> list(const Project& p, const std::string& rel) {
     return nodes;
 }
 
+std::vector<std::string> allScriptRels(const Project& p) {
+    std::vector<std::string> out;
+    const auto walk = [&](const auto& self, const std::string& rel) -> void {
+        for (const Node& node : list(p, rel)) {
+            if (node.isDir) {
+                self(self, node.rel);
+            } else {
+                out.push_back(node.rel);
+            }
+        }
+    };
+    walk(walk, "");
+    return out;
+}
+
 std::string rootOf(const std::string& rel) {
     const std::string::size_type slash = rel.find('/');
     if (slash == std::string::npos) return "";

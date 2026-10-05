@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <string>
 
 namespace sk {
@@ -12,7 +13,10 @@ struct Project;
 // .sk) y botones de accion. Los archivos viven en la carpeta scripts/
 // del proyecto.
 //
-// La asociacion de scripts con objetos de la escena llega con ModelScript.
+// ModelScript: el campo "Asociado a" muestra el objeto de la escena
+// vinculado al script (via onQueryAssoc); borrar o renombrar un script
+// avisa al dueno (onScriptRemoved/onScriptRenamed) para que actualice
+// y guarde las asociaciones.
 class CodeView {
 public:
     static constexpr int kTreeWidth = 340;
@@ -30,6 +34,23 @@ public:
 
     // width/height son los de la ventana principal.
     void resize(int width, int height);
+
+    // Nombre del objeto asociado a una rel de script ("" si no hay).
+    void setOnQueryAssoc(std::function<std::string(const std::string&)> cb) {
+        onQueryAssoc_ = std::move(cb);
+    }
+    // Refresca el panel Properties (p. ej. tras cambiar la asociacion
+    // desde PLACE).
+    void refreshProperties() { updateProperties(); }
+    // Se borro el elemento rel (archivo o carpeta con sus hijos).
+    void setOnScriptRemoved(std::function<void(const std::string&)> cb) {
+        onScriptRemoved_ = std::move(cb);
+    }
+    // rel paso de oldRel a newRel (archivo o carpeta).
+    void setOnScriptRenamed(
+        std::function<void(const std::string&, const std::string&)> cb) {
+        onScriptRenamed_ = std::move(cb);
+    }
 
 private:
     static long long __stdcall wndProc(void* hwnd, unsigned int msg,
@@ -63,6 +84,9 @@ private:
     void* propsAssoc_ = nullptr;
     const Project* project_ = nullptr;
     bool visible_ = false;
+    std::function<std::string(const std::string&)> onQueryAssoc_;
+    std::function<void(const std::string&)> onScriptRemoved_;
+    std::function<void(const std::string&, const std::string&)> onScriptRenamed_;
 };
 
 } // namespace sk

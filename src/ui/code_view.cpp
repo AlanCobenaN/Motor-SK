@@ -376,7 +376,14 @@ void CodeView::updateProperties() {
     SetWindowTextA(static_cast<HWND>(propsType_), type);
     const std::string loc = parent.empty() ? "scripts" : "scripts/" + parent;
     SetWindowTextA(static_cast<HWND>(propsLoc_), loc.c_str());
-    SetWindowTextA(static_cast<HWND>(propsAssoc_), "-");
+
+    // ModelScript: objeto de la escena asociado a este script ("-").
+    std::string assoc = "-";
+    if (!scripts::isProtected(sel) && !isDirRel(sel) && onQueryAssoc_) {
+        const std::string object = onQueryAssoc_(sel);
+        if (!object.empty()) assoc = object;
+    }
+    SetWindowTextA(static_cast<HWND>(propsAssoc_), assoc.c_str());
 }
 
 void CodeView::updateButtons() {
@@ -461,9 +468,12 @@ void CodeView::onRename() {
         return;
     }
     const std::string parent = parentSegment(sel);
+    const std::string newRel = parent.empty()
+                                   ? (script ? base + ".sk" : base)
+                                   : parent + "/" + (script ? base + ".sk" : base);
+    if (onScriptRenamed_) onScriptRenamed_(sel, newRel);
     rebuildTree();
-    selectRel(parent.empty() ? (script ? base + ".sk" : base)
-                             : parent + "/" + (script ? base + ".sk" : base));
+    selectRel(newRel);
     updateProperties();
 }
 
@@ -483,6 +493,10 @@ void CodeView::onDelete() {
                     "Borrar", MB_OK | MB_ICONERROR);
         return;
     }
+    // Aviso post-borrado: el dueno limpia (y guarda) las asociaciones
+    // de la escena que apuntaban a esta rel (los hijos incluidos si era
+    // una carpeta).
+    if (onScriptRemoved_) onScriptRemoved_(sel);
     const std::string parent = parentSegment(sel);
     rebuildTree();
     if (!parent.empty()) selectRel(parent);

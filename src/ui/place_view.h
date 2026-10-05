@@ -7,15 +7,17 @@
 
 namespace sk {
 
-// Paneles laterales de la division PLACE: Properties (Transform) a la
-// izquierda y el Explorer (arbol con la raiz dimension01) a la derecha,
-// sobre la vista 3D. Son dos ventanas hijas de la principal (con
-// WS_CLIPCHILDREN para que el present no las tape).
+// Paneles laterales de la division PLACE: Properties (Transform y la
+// asociacion ModelScript "Asociado a") a la izquierda y el Explorer
+// (arbol con la raiz dimension01) a la derecha, sobre la vista 3D. Son
+// dos ventanas hijas de la principal (con WS_CLIPCHILDREN para que el
+// present no las tape).
 //
 // El Explorer arranca con una unica raiz "dimension01" (la escena del
 // lugar) y recibe los objetos anadidos con addObject(). Properties
-// muestra el Transform del objeto seleccionado (o la raiz). La
-// asociacion de scripts con objetos llega con ModelScript.
+// muestra el Transform del objeto seleccionado (o la raiz) y su script
+// asociado (ModelScript); el boton "Cambiar..." abre el selector de
+// scripts via onAssocEdit.
 class PlaceView {
 public:
     static constexpr int kExplorerWidth = 260;
@@ -49,6 +51,13 @@ public:
         onSelectionChanged_ = std::move(cb);
     }
 
+    // Boton "Cambiar..." de la fila Asociado a (ModelScript): se invoca
+    // con el nombre del objeto seleccionado para que el dueno abra el
+    // selector de scripts y guarde la escena.
+    void setOnAssocEdit(std::function<void(const std::string&)> cb) {
+        onAssocEdit_ = std::move(cb);
+    }
+
 private:
     static long long __stdcall wndProc(void* hwnd, unsigned int msg,
                                        unsigned long long wParam, long long lParam);
@@ -61,7 +70,9 @@ private:
     void* tree_ = nullptr;
     void* root_ = nullptr;   // HTREEITEM de dimension01
     bool visible_ = false;
+    std::string selectedName_;   // objeto seleccionado ("" si no hay)
     std::function<void(const std::string&)> onSelectionChanged_;
+    std::function<void(const std::string&)> onAssocEdit_;
 };
 
 } // namespace sk

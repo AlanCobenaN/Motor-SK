@@ -8,6 +8,7 @@
 #include <string>
 
 #include "../core/log.h"
+#include "dark_button.h"
 #include "theme.h"
 #include "workspace_tabs.h"
 
@@ -18,6 +19,11 @@ namespace {
 const char* kPanelClass = "MotorSKPlacePanel";
 
 constexpr int kHeaderHeight = 36;
+
+// Ids dentro del panel Properties (100.. = etiquetas, 200.. = valores).
+constexpr int kIdStatus = 100;
+constexpr int kIdAssocValue = 209;
+constexpr int kIdAssocBtn = 210;
 
 // Cabecera del panel + linea separadora, dentro del WM_PAINT propio.
 void paintPanelHeader(HDC hdc, const RECT& rc, const char* title) {
@@ -174,6 +180,24 @@ bool PlaceView::create(void* parentHwnd) {
         }
     }
 
+    // ModelScript: script asociado al objeto seleccionado.
+    const int assocY = kHeaderHeight + 62 + 3 * 34;
+    makeStatic(hprop, inst, 105, "Asociado a",
+               12, assocY + 2, 70, 22, theme::uiFont());
+    makeStatic(hprop, inst, kIdAssocValue, "-",
+               84, assocY + 2, 126, 22, theme::uiFont());
+    HWND assocBtn = CreateWindowExA(0, "BUTTON", "Cambiar...",
+                                    WS_CHILD | WS_VISIBLE | WS_TABSTOP |
+                                        BS_OWNERDRAW,
+                                    214, assocY, 74, 26, hprop,
+                                    reinterpret_cast<HMENU>(
+                                        static_cast<INT_PTR>(kIdAssocBtn)),
+                                    inst, nullptr);
+    SendMessageA(assocBtn, WM_SETFONT,
+                 reinterpret_cast<WPARAM>(theme::uiFont()), TRUE);
+    ui::makeDarkButton(assocBtn);
+    EnableWindow(assocBtn, FALSE); // sin objeto seleccionado aun
+
     resize(rc.right, rc.bottom);
     SK_INFO("Paneles PLACE listos (Properties %d izq + Explorer %d der)",
             kPropertiesWidth, kExplorerWidth);
@@ -236,7 +260,8 @@ void PlaceView::clearObjects() {
 void PlaceView::showObject(const SceneObject& object) {
     HWND props = static_cast<HWND>(properties_);
     if (!props) return;
-    if (HWND status = GetDlgItem(props, 100)) {
+    selectedName_ = object.name;
+    if (HWND status = GetDlgItem(props, kIdStatus)) {
         SetWindowTextA(status, object.name.c_str());
     }
     for (int axis = 0; axis < 3; ++axis) {
@@ -244,24 +269,34 @@ void PlaceView::showObject(const SceneObject& object) {
         setTransformField(props, 203 + axis, (&object.rotation.x)[axis]);
         setTransformField(props, 206 + axis, (&object.scale.x)[axis]);
     }
+    if (HWND assoc = GetDlgItem(props, kIdAssocValue)) {
+        SetWindowTextA(assoc, object.script.empty() ? "-" : object.script.c_str());
+    }
+    if (HWND btn = GetDlgItem(props, kIdAssocBtn)) EnableWindow(btn, TRUE);
 }
 
 void PlaceView::showRoot() {
     HWND props = static_cast<HWND>(properties_);
     if (!props) return;
-    if (HWND status = GetDlgItem(props, 100)) {
+    selectedName_.clear();
+    if (HWND status = GetDlgItem(props, kIdStatus)) {
         SetWindowTextA(status, "dimension01");
     }
     setTransformIdentity(props);
+    if (HWND assoc = GetDlgItem(props, kIdAssocValue)) SetWindowTextA(assoc, "-");
+    if (HWND btn = GetDlgItem(props, kIdAssocBtn)) EnableWindow(btn, FALSE);
 }
 
 void PlaceView::showNoSelection() {
     HWND props = static_cast<HWND>(properties_);
     if (!props) return;
-    if (HWND status = GetDlgItem(props, 100)) {
+    selectedName_.clear();
+    if (HWND status = GetDlgItem(props, kIdStatus)) {
         SetWindowTextA(status, "Sin objeto seleccionado");
     }
     setTransformIdentity(props);
+    if (HWND assoc = GetDlgItem(props, kIdAssocValue)) SetWindowTextA(assoc, "-");
+    if (HWND btn = GetDlgItem(props, kIdAssocBtn)) EnableWindow(btn, FALSE);
 }
 
 void PlaceView::notifySelection() {
@@ -327,6 +362,16 @@ long long __stdcall PlaceView::wndProc(void* hwndPtr, unsigned int msg,
             EndPaint(hwnd, &ps);
             return 0;
         }
+        case WM_COMMAND: {
+            if (!self) break;
+            if (LOWORD(wParam) == kIdAssocBtn && HIWORD(wParam) == BN_CLICKED) {
+                if (!self->selectedName_.empty() && self->onAssocEdit_) {
+                    self->onAssocEdit_(self->selectedName_);
+                }
+                return 0;
+            }
+            break;
+        }
         case WM_NOTIFY: {
             auto* hdr = reinterpret_cast<NMHDR*>(lParam);
             if (self && self->tree_ &&
@@ -347,11 +392,13 @@ long long __stdcall PlaceView::wndProc(void* hwndPtr, unsigned int msg,
         case WM_CTLCOLORSTATIC: {
             HDC hdc = reinterpret_cast<HDC>(wParam);
             SetBkMode(hdc, TRANSPARENT);
-            // El estado "Sin objeto seleccionado" va apagado; el resto (y
-            // las etiquetas Transform) en color normal de texto.
+            // El estado "Sin objeto seleccionado" (y los "-" de valores
+            // vacios) van apagados; el resto (y las etiquetas Transform)
+            // en color normal de texto.
             char text[64]{};
             GetWindowTextA(reinterpret_cast<HWND>(lParam), text, 64);
-            const bool muted = std::strcmp(text, "Sin objeto seleccionado") == 0;
+            const bool muted = std::strcmp(text, "Sin objeto seleccionado") == 0 ||
+                               text[0] == '-';
             SetTextColor(hdc, muted ? theme::textDisabled() : theme::text());
             return reinterpret_cast<long long>(theme::backgroundBrush());
         }

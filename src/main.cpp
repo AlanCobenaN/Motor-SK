@@ -16,6 +16,7 @@
 #include "ui/code_view.h"
 #include "ui/place_view.h"
 #include "ui/projects_panel.h"
+#include "ui/script_picker.h"
 #include "ui/workspace_tabs.h"
 
 namespace {
@@ -101,6 +102,18 @@ int main(int argc, char** argv) {
     sk::PlaceView place;
     sk::CodeView code;
 
+    // Ruta absoluta de la escena del proyecto (escenas/inicio.scene).
+    auto scenePath = [](const sk::Project& p) {
+        return p.folder + "/" + p.scene;
+    };
+    auto saveScene = [&]() {
+        if (active.folder.empty()) return;
+        const std::string path = scenePath(active);
+        if (!scene.saveToFile(path)) {
+            SK_ERROR("No se pudo guardar la escena: %s", path.c_str());
+        }
+    };
+
     auto openProject = [&](const std::string& folder) {
         sk::Project p;
         if (!sk::project::load(folder, p)) {
@@ -111,7 +124,11 @@ int main(int argc, char** argv) {
         config.save();
         active = std::move(p);
         scene.clear();
+        scene.loadFromFile(scenePath(active));
         place.clearObjects();   // Explorer vuelve a solo dimension01
+        for (const sk::SceneObject& object : scene.objects()) {
+            place.addObject(object.name); // la ultima queda seleccionada
+        }
         view3d = true;
         panel.setVisible(false);
         workspace.setVisible(true);
@@ -169,6 +186,7 @@ int main(int argc, char** argv) {
     workspace.setOnAddPart([&]() {
         const std::string name = scene.addPart().name;
         place.addObject(name);
+        saveScene();
         SK_INFO("Part anadido: %s", name.c_str());
     });
 
@@ -185,6 +203,61 @@ int main(int argc, char** argv) {
         } else {
             place.showRoot();
         }
+    });
+
+    // ModelScript: boton "Cambiar..." de PLACE -> selector de scripts;
+    // la escena guarda el objeto.script y se escribe en disco.
+    place.setOnAssocEdit([&](const std::string& objectName) {
+        sk::SceneObject* object = scene.findByName(objectName);
+        if (!object) return;
+        std::string rel;
+        const HWND owner = static_cast<HWND>(window.nativeHandle());
+        if (!sk::ui::pickScript(owner, active, object->script, rel)) return;
+        object->script = rel;
+        saveScene();
+        place.showObject(*object);   // refresca el Asociado a en PLACE
+        code.refreshProperties();
+        SK_INFO("Asociacion de %s: %s", objectName.c_str(),
+                rel.empty() ? "(ninguno)" : rel.c_str());
+    });
+
+    // CODE: el panel Properties consulta el objeto asociado a un script.
+    code.setOnQueryAssoc([&](const std::string& rel) -> std::string {
+        for (const sk::SceneObject& object : scene.objects()) {
+            if (object.script == rel) return object.name;
+        }
+        return "";
+    });
+
+    // Borrar un script (o una carpeta con sus hijos) limpia las
+    // asociaciones de la escena que apuntaban a esa rel.
+    code.setOnScriptRemoved([&](const std::string& rel) {
+        bool changed = false;
+        for (sk::SceneObject& object : scene.objects()) {
+            if (object.script.empty()) continue;
+            if (object.script == rel ||
+                object.script.rfind(rel + "/", 0) == 0) {
+                object.script.clear();
+                changed = true;
+            }
+        }
+        if (changed) saveScene();
+    });
+
+    // Renombrar (archivo o carpeta) reescribe las rels afectadas.
+    code.setOnScriptRenamed([&](const std::string& oldRel,
+                                 const std::string& newRel) {
+        bool changed = false;
+        for (sk::SceneObject& object : scene.objects()) {
+            if (object.script == oldRel) {
+                object.script = newRel;
+                changed = true;
+            } else if (object.script.rfind(oldRel + "/", 0) == 0) {
+                object.script = newRel + object.script.substr(oldRel.size());
+                changed = true;
+            }
+        }
+        if (changed) saveScene();
     });
 
     if (!startupProject.empty()) {

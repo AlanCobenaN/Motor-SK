@@ -37,6 +37,7 @@ add_executable(${PROJECT_NAME}
     src/ui/projects_panel.cpp
     src/ui/dark_button.cpp
     src/ui/prompt.cpp
+    src/ui/script_picker.cpp
     src/ui/place_view.cpp
     src/ui/workspace_tabs.cpp
 )
