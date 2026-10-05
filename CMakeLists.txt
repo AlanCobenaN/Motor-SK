@@ -23,8 +23,12 @@ add_executable(${PROJECT_NAME}
     src/core/config.cpp
     src/platform/window.cpp
     src/project/project.cpp
+    src/project/scripts.cpp
+    src/ui/code_view.cpp
     src/render/renderer.cpp
     src/ui/projects_panel.cpp
+    src/ui/dark_button.cpp
+    src/ui/prompt.cpp
     src/ui/place_view.cpp
     src/ui/workspace_tabs.cpp
 )

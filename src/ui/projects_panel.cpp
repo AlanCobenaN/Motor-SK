@@ -8,10 +8,11 @@
 #include <algorithm>
 #include <ctime>
 #include <filesystem>
-#include <list>
 
 #include "../core/config.h"
 #include "../core/log.h"
+#include "dark_button.h"
+#include "prompt.h"
 #include "theme.h"
 
 namespace fs = std::filesystem;
@@ -21,7 +22,6 @@ namespace sk {
 namespace {
 
 const char* kPanelClass = "MotorSKProjectsPanel";
-const char* kPromptClass = "MotorSKPrompt";
 
 enum ControlId {
     kIdList = 1001,
@@ -42,210 +42,9 @@ std::string formatEpoch(long long t) {
 }
 
 // ---------------------------------------------------------------------------
-// Botones oscuros: subclase para el estado hover + pintado owner-draw.
-// ---------------------------------------------------------------------------
-
-struct DarkButton {
-    HWND hwnd;
-    bool hover;
-};
-
-// std::list: los punteros a los elementos son estables (el subclass proc
-// guarda un DarkButton* en dwRefData).
-std::list<DarkButton> gButtons;
-
-DarkButton* findDarkButton(HWND hwnd) {
-    for (DarkButton& b : gButtons) {
-        if (b.hwnd == hwnd) return &b;
-    }
-    return nullptr;
-}
-
-LRESULT CALLBACK darkButtonProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
-                                UINT_PTR /*subclassId*/, DWORD_PTR refData) {
-    auto* button = reinterpret_cast<DarkButton*>(refData);
-    switch (msg) {
-        case WM_MOUSEMOVE: {
-            const bool disabled = (GetWindowLongA(hwnd, GWL_STYLE) & WS_DISABLED) != 0;
-            if (!disabled && !button->hover) {
-                button->hover = true;
-                InvalidateRect(hwnd, nullptr, FALSE);
-            }
-            TRACKMOUSEEVENT tme{sizeof(tme), TME_LEAVE, hwnd, 0};
-            TrackMouseEvent(&tme);
-            break;
-        }
-        case WM_MOUSELEAVE:
-            if (button->hover) {
-                button->hover = false;
-                InvalidateRect(hwnd, nullptr, FALSE);
-            }
-            break;
-        case WM_ERASEBKGND:
-            return 1;
-        case WM_NCDESTROY:
-            RemoveWindowSubclass(hwnd, darkButtonProc, 1);
-            gButtons.remove_if([=](const DarkButton& b) { return b.hwnd == hwnd; });
-            break;
-        default:
-            break;
-    }
-    return DefSubclassProc(hwnd, msg, wParam, lParam);
-}
-
-void makeDarkButton(HWND hwnd) {
-    gButtons.push_back({hwnd, false});
-    SetWindowSubclass(hwnd, darkButtonProc, 1,
-                      reinterpret_cast<DWORD_PTR>(&gButtons.back()));
-}
-
-// ---------------------------------------------------------------------------
 // Dialogo modal de texto (Win32 no tiene InputBox).
 // Devuelve el texto aceptado o "" si se cancelo.
 // ---------------------------------------------------------------------------
-
-struct PromptState {
-    HWND edit = nullptr;
-    std::string value;
-    bool accepted = false;
-    bool done = false;
-};
-
-PromptState* gPrompt = nullptr;
-
-long long __stdcall promptWndProc(void* hwndPtr, unsigned int msg,
-                                  unsigned long long wParam, long long lParam) {
-    HWND hwnd = static_cast<HWND>(hwndPtr);
-    switch (msg) {
-        case WM_CREATE: {
-            HINSTANCE inst = GetModuleHandleW(nullptr);
-
-            HWND label = CreateWindowExA(0, "STATIC", "Nombre:",
-                                         WS_CHILD | WS_VISIBLE,
-                                         12, 14, 326, 20, hwnd, nullptr, inst, nullptr);
-            HWND edit = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", "",
-                                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
-                                        12, 40, 326, 30, hwnd, nullptr, inst, nullptr);
-            HWND ok = CreateWindowExA(0, "BUTTON", "Aceptar",
-                                      WS_CHILD | WS_VISIBLE | WS_TABSTOP |
-                                          BS_OWNERDRAW | BS_DEFPUSHBUTTON,
-                                      154, 86, 92, 30, hwnd,
-                                      reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDOK)),
-                                      inst, nullptr);
-            HWND cancel = CreateWindowExA(0, "BUTTON", "Cancelar",
-                                          WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
-                                          254, 86, 92, 30, hwnd,
-                                          reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDCANCEL)),
-                                          inst, nullptr);
-
-            for (HWND c : {label, edit}) {
-                SendMessageA(c, WM_SETFONT, reinterpret_cast<WPARAM>(theme::uiFont()), TRUE);
-            }
-            makeDarkButton(ok);
-            makeDarkButton(cancel);
-            if (gPrompt) gPrompt->edit = edit;
-            return 0;
-        }
-        case WM_DRAWITEM: {
-            auto* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
-            if (dis->CtlType == ODT_BUTTON) {
-                const DarkButton* b = findDarkButton(dis->hwndItem);
-                theme::paintDarkButton(*dis, b != nullptr && b->hover);
-                return TRUE;
-            }
-            break;
-        }
-        case WM_CTLCOLORSTATIC: {
-            HDC hdc = reinterpret_cast<HDC>(wParam);
-            SetTextColor(hdc, theme::text());
-            SetBkMode(hdc, TRANSPARENT);
-            return reinterpret_cast<LRESULT>(theme::backgroundBrush());
-        }
-        case WM_CTLCOLOREDIT: {
-            HDC hdc = reinterpret_cast<HDC>(wParam);
-            SetTextColor(hdc, theme::text());
-            SetBkColor(hdc, theme::surface());
-            return reinterpret_cast<LRESULT>(theme::surfaceBrush());
-        }
-        case WM_COMMAND: {
-            const int id = LOWORD(wParam);
-            if (id == IDOK && gPrompt) {
-                char buf[512]{};
-                GetWindowTextA(gPrompt->edit, buf, static_cast<int>(sizeof(buf)));
-                gPrompt->value = buf;
-                gPrompt->accepted = true;
-                DestroyWindow(hwnd);
-            } else if (id == IDCANCEL) {
-                DestroyWindow(hwnd);
-            }
-            return 0;
-        }
-        case WM_CLOSE:
-            DestroyWindow(hwnd);
-            return 0;
-        case WM_DESTROY:
-            if (gPrompt) gPrompt->done = true;
-            return 0;
-        default:
-            break;
-    }
-    return DefWindowProcA(hwnd, msg, wParam, lParam);
-}
-
-std::string promptText(HWND owner, const char* title, const char* initial) {
-    static bool registered = false;
-    if (!registered) {
-        WNDCLASSEXA wc{};
-        wc.cbSize = sizeof(wc);
-        wc.lpfnWndProc = reinterpret_cast<WNDPROC>(&promptWndProc);
-        wc.hInstance = GetModuleHandleW(nullptr);
-        wc.hCursor = LoadCursorA(nullptr, IDC_ARROW);
-        wc.hbrBackground = theme::backgroundBrush();
-        wc.lpszClassName = kPromptClass;
-        RegisterClassExA(&wc);
-        registered = true;
-    }
-
-    PromptState state;
-    gPrompt = &state;
-
-    RECT rect{0, 0, 358, 130};
-    DWORD style = WS_POPUP | WS_CAPTION | WS_SYSMENU;
-    AdjustWindowRect(&rect, style, FALSE);
-
-    // Centrar sobre la ventana padre.
-    RECT ownerRect{};
-    GetWindowRect(owner, &ownerRect);
-    const int x = ownerRect.left + ((ownerRect.right - ownerRect.left) - (rect.right - rect.left)) / 2;
-    const int y = ownerRect.top + ((ownerRect.bottom - ownerRect.top) - (rect.bottom - rect.top)) / 2;
-
-    HWND hwnd = CreateWindowExA(WS_EX_TOOLWINDOW, kPromptClass, title, style | WS_VISIBLE,
-                                x, y, rect.right - rect.left, rect.bottom - rect.top,
-                                owner, nullptr, GetModuleHandleW(nullptr), nullptr);
-    if (!hwnd) {
-        gPrompt = nullptr;
-        return "";
-    }
-    theme::enableDarkTitleBar(hwnd);
-
-    SetWindowTextA(state.edit, initial);
-    SetFocus(state.edit);
-    SendMessageA(state.edit, EM_SETSEL, 0, -1);
-
-    EnableWindow(owner, FALSE);
-
-    MSG msg{};
-    while (!state.done && GetMessageA(&msg, nullptr, 0, 0) > 0) {
-        if (IsDialogMessageA(hwnd, &msg)) continue;
-        TranslateMessage(&msg);
-        DispatchMessageA(&msg);
-    }
-
-    EnableWindow(owner, TRUE);
-    SetActiveWindow(owner);
-    gPrompt = nullptr;
-    return state.accepted ? state.value : "";
-}
 
 // Selecciona en la lista el proyecto con esta carpeta (tras crear/renombrar).
 void selectFolder(HWND list, const std::vector<Project>& projects,
@@ -308,7 +107,7 @@ bool ProjectsPanel::create(void* parentHwnd, Config* config, OpenHandler onOpen)
                                  reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
                                  inst, nullptr);
         SendMessageA(b, WM_SETFONT, reinterpret_cast<WPARAM>(theme::uiFont()), TRUE);
-        makeDarkButton(b);
+        ui::makeDarkButton(b);
         return b;
     };
 
@@ -470,7 +269,7 @@ void ProjectsPanel::updateButtons() {
         if (!hwnd) return;
         if (!enabled) {
             // Un boton deshabilitado no puede quedar en estado hover.
-            if (DarkButton* b = findDarkButton(hwnd); b && b->hover) {
+            if (ui::DarkButton* b = ui::findDarkButton(hwnd); b && b->hover) {
                 b->hover = false;
                 InvalidateRect(hwnd, nullptr, FALSE);
             }
@@ -494,7 +293,7 @@ void ProjectsPanel::openSelected() {
 
 void ProjectsPanel::newProject() {
     const std::string name =
-        promptText(static_cast<HWND>(hwnd_), "Nuevo proyecto", "");
+        ui::promptText(static_cast<HWND>(hwnd_), "Nuevo proyecto", "");
     if (name.empty()) return;
 
     if (!project::isValidName(name)) {
@@ -524,7 +323,7 @@ void ProjectsPanel::renameSelected() {
 
     const std::string folder = p->folder;
     const std::string name =
-        promptText(static_cast<HWND>(hwnd_), "Renombrar proyecto", p->name.c_str());
+        ui::promptText(static_cast<HWND>(hwnd_), "Renombrar proyecto", p->name.c_str());
     if (name.empty()) return;
 
     if (!project::isValidName(name)) {
@@ -695,11 +494,7 @@ long long __stdcall ProjectsPanel::wndProc(void* hwndPtr, unsigned int msg,
             }
             case WM_DRAWITEM: {
                 auto* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
-                if (dis->CtlType == ODT_BUTTON) {
-                    const DarkButton* b = findDarkButton(dis->hwndItem);
-                    theme::paintDarkButton(*dis, b != nullptr && b->hover);
-                    return TRUE;
-                }
+                if (ui::paintDarkButton(*dis)) return TRUE;
                 break;
             }
             case WM_COMMAND: {

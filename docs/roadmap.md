@@ -28,6 +28,10 @@ Ejecutable `.exe` con:
 - [x] Division PLACE: paneles Explorer (arbol Folders/Objects) y Properties
        (Transform, solo lectura hasta que haya objetos); visibles solo en
        PLACE, ocultos en CODE/GUI
+- [x] Division CODE: organizador de scripts (Server/Shared/Player/Character),
+       carpetas anidadas, crear script/carpeta, renombrar, borrar con
+       confirmacion, raices protegidas, Properties con Nombre/Tipo/Ubicacion;
+       visibles solo en CODE
 - [ ] Abrir un archivo/archivo de escena
 - [x] Cámara libre: WASD para moverse, click derecho para mirar, scroll para
       acercar/alejar
