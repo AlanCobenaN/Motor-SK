@@ -20,29 +20,37 @@ Ejecutable `.exe` con:
 - [x] Tabla con márgenes, esquinas redondeadas y marco; tipografía Segoe UI
       (16px, cabeceras semibold)
 - [x] Abrir un proyecto → vista 3D (Esc vuelve al panel)
-- [x] Divisiones del workspace en la vista 3D: barra superior de 48px con
+- [x] Icono del programa (logo.ico embebido via app.rc): ventana, barra de
+       tareas y Alt+Tab
+- [x] Banda superior en dos filas (72px): barra de atajos estilo Roblox con
+       el boton "Part" (anade un objeto 3D a la escena) y navbar compacta con
        PLACE / CODE / GUI (botones redondeados, oscuro, texto blanco);
        sin area vacia, la vista 3D ocupa el resto
 - [x] Swapchain se recrea en cada resize (WM_SIZE avisa al renderer; sin
        depender de OUT_OF_DATE, que lavapipe no devuelve)
-- [x] Division PLACE: paneles Properties (Transform, solo lectura hasta que
-       haya objetos) a la izquierda y Explorer (arbol con raiz unica
-       `dimension01`) a la derecha; visibles solo en PLACE, ocultos en
-       CODE/GUI
+- [x] Division PLACE: paneles Properties (Transform del objeto seleccionado)
+       a la izquierda y Explorer (arbol con raiz unica `dimension01` y los
+       objetos Part insertados) a la derecha; visibles solo en PLACE,
+       ocultos en CODE/GUI
 - [x] Division CODE: organizador de scripts (Server/Shared/Player/Character),
        carpetas anidadas, crear script/carpeta, renombrar, borrar con
-       confirmacion, raices protegidas, Properties con Nombre/Tipo/Ubicacion;
-       visibles solo en CODE
+       confirmacion, raices protegidas, Properties con Nombre/Tipo/Ubicacion
+       a la izquierda y Scripts a la derecha; visibles solo en CODE
+- [x] Objetos 3D "Part": escena propia (Scene/SceneObject con posicion,
+       rotacion y escala), el boton Part inserta un cubo sobre la rejilla,
+       Explorer anade y selecciona el nodo, Properties refresca el Transform
+- [ ] ModelScript: asociar scripts del organizador con objetos de la escena
 - [ ] Abrir un archivo/archivo de escena
 - [x] Cámara libre: WASD para moverse, click derecho para mirar, scroll para
-      acercar/alejar
+       acercar/alejar
 - [x] Rejilla de referencia en el suelo (para percibir el movimiento)
 
 ## Fase 2 — Render básico
 
 - [ ] Pipelines: shader vert/frag con `glslc` en build time
-- [ ] Mallas (triángulo/cubo) y materiales simples
-- [ ] Depth buffer
+- [x] Mallas: cubo de 36 vertices con color por cara (pipeline de
+       triangulos propio, mismos shaders y push constant que la rejilla)
+- [x] Depth buffer
 
 ## Fase 3 — Escenas y recursos
 
