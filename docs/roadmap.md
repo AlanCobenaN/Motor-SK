@@ -25,6 +25,9 @@ Ejecutable `.exe` con:
        sin area vacia, la vista 3D ocupa el resto
 - [x] Swapchain se recrea en cada resize (WM_SIZE avisa al renderer; sin
        depender de OUT_OF_DATE, que lavapipe no devuelve)
+- [x] Division PLACE: paneles Explorer (arbol Folders/Objects) y Properties
+       (Transform, solo lectura hasta que haya objetos); visibles solo en
+       PLACE, ocultos en CODE/GUI
 - [ ] Abrir un archivo/archivo de escena
 - [x] Cámara libre: WASD para moverse, click derecho para mirar, scroll para
       acercar/alejar

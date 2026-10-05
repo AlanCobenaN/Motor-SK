@@ -11,6 +11,7 @@
 #include "project/project.h"
 #include "render/renderer.h"
 #include "scene/camera.h"
+#include "ui/place_view.h"
 #include "ui/projects_panel.h"
 #include "ui/workspace_tabs.h"
 
@@ -93,6 +94,7 @@ int main(int argc, char** argv) {
 
     sk::ProjectsPanel panel;
     sk::WorkspaceTabs workspace;
+    sk::PlaceView place;
 
     auto openProject = [&](const std::string& folder) {
         sk::Project p;
@@ -106,6 +108,7 @@ int main(int argc, char** argv) {
         view3d = true;
         panel.setVisible(false);
         workspace.setVisible(true);
+        place.setVisible(workspace.active() == 0);
         SetWindowTextA(static_cast<HWND>(window.nativeHandle()),
                        ("Motor SK - " + active.name).c_str());
         SK_INFO("Proyecto abierto: %s", active.name.c_str());
@@ -118,12 +121,25 @@ int main(int argc, char** argv) {
     }
 
     if (!workspace.create(window.nativeHandle())) {
-    workspace.destroy();
-    panel.destroy();
+        workspace.destroy();
+        panel.destroy();
         renderer.shutdown();
         window.destroy();
         return 1;
     }
+
+    if (!place.create(window.nativeHandle())) {
+        place.destroy();
+        workspace.destroy();
+        panel.destroy();
+        renderer.shutdown();
+        window.destroy();
+        return 1;
+    }
+
+    // Solo la division PLACE muestra los paneles Explorer/Properties;
+    // CODE y GUI dejan la vista 3D libre hasta que tengan su contenido.
+    workspace.setOnTabChanged([&place](int tab) { place.setVisible(tab == 0); });
 
     if (!startupProject.empty()) {
         // Arranque en modo vista 3D (pruebas/atajos).
@@ -142,6 +158,7 @@ int main(int argc, char** argv) {
             renderer.invalidateSwapchain();
             panel.resize(window.framebufferWidth(), window.framebufferHeight());
             workspace.resize(window.framebufferWidth(), window.framebufferHeight());
+            place.resize(window.framebufferWidth(), window.framebufferHeight());
         }
 
         if (!view3d) {
@@ -159,6 +176,7 @@ int main(int argc, char** argv) {
             panel.setVisible(true);
             panel.refresh();
             workspace.setVisible(false);
+            place.setVisible(false);
             SetWindowTextA(static_cast<HWND>(window.nativeHandle()), "Motor SK");
             escWasDown = escDown;
             continue;
@@ -187,6 +205,8 @@ int main(int argc, char** argv) {
         ++frame;
     }
 
+    place.destroy();
+    workspace.destroy();
     panel.destroy();
     renderer.shutdown();
     window.destroy();

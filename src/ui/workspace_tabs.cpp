@@ -113,6 +113,7 @@ void WorkspaceTabs::selectTab(int index) {
             InvalidateRect(static_cast<HWND>(buttons_[i]), nullptr, TRUE);
         }
     }
+    if (onTabChanged_) onTabChanged_(index);
 }
 
 void WorkspaceTabs::resize(int width, int height) {

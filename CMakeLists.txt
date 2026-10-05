@@ -25,6 +25,7 @@ add_executable(${PROJECT_NAME}
     src/project/project.cpp
     src/render/renderer.cpp
     src/ui/projects_panel.cpp
+    src/ui/place_view.cpp
     src/ui/workspace_tabs.cpp
 )
 

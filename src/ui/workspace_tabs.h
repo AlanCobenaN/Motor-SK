@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 namespace sk {
 
 // Barra superior de la vista 3D: las tres divisiones del workspace
@@ -19,6 +21,12 @@ public:
     void setVisible(bool visible);
     bool visible() const { return visible_; }
 
+    // 0 = PLACE, 1 = CODE, 2 = GUI.
+    int active() const { return active_; }
+
+    // Se llama cada vez que cambia la division activa.
+    void setOnTabChanged(std::function<void(int)> cb) { onTabChanged_ = std::move(cb); }
+
     // width/height son los de la ventana principal; la barra solo usa
     // kToolbarHeight de alto.
     void resize(int width, int height);
@@ -35,6 +43,7 @@ private:
     void* buttons_[kTabCount] = {};
     int active_ = 0;
     bool visible_ = false;
+    std::function<void(int)> onTabChanged_;
 };
 
 } // namespace sk
