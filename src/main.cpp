@@ -204,6 +204,12 @@ int main(int argc, char** argv) {
         SK_INFO("Part anadido: %s", name.c_str());
     });
 
+    // Cambio de herramienta (botones de la banda o teclas 1-4).
+    workspace.setOnToolChanged([](int tool) {
+        static const char* names[] = {"seleccionar", "mover", "escalar", "rotar"};
+        SK_INFO("herramienta: %s", names[tool]);
+    });
+
     // Seleccion en el Explorer -> Properties (objetos de la escena o la
     // raiz dimension01). El estado de seleccion (multi) vive aqui y el
     // arbol lo refleja.
@@ -288,6 +294,7 @@ int main(int argc, char** argv) {
     int frame = 0;
     bool escWasDown = false;
     bool camKeysWasDown = false;
+    int toolKeyWasDown = 0;
 
     // Arrastre de seleccion (marquee) en el viewport de PLACE.
     bool dragPending = false;  // pressed dentro del viewport, sin mover
@@ -382,6 +389,22 @@ int main(int argc, char** argv) {
             SK_INFO("camara (%.2f,%.2f,%.2f)", p.x, p.y, p.z);
         }
         camKeysWasDown = camKeys;
+
+        // Teclas 1-4: cambiar de herramienta (solo con la ventana
+        // enfocada, en PLACE y sin escribir en un campo de texto).
+        const bool toolKeysOk = window.hasFocus() && !window.textInputFocused() &&
+                                workspace.visible() && place.visible();
+        int toolKeyNow = 0;
+        if (toolKeysOk) {
+            if (window.keyDown('1')) toolKeyNow = 1;
+            else if (window.keyDown('2')) toolKeyNow = 2;
+            else if (window.keyDown('3')) toolKeyNow = 3;
+            else if (window.keyDown('4')) toolKeyNow = 4;
+        }
+        if (toolKeyNow != 0 && toolKeyNow != toolKeyWasDown) {
+            workspace.setTool(toolKeyNow - 1);
+        }
+        toolKeyWasDown = toolKeyNow;
 
         const float aspect = (window.framebufferHeight() > 0)
             ? static_cast<float>(window.framebufferWidth()) /
