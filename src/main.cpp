@@ -482,7 +482,29 @@ int main(int argc, char** argv) {
             models.push_back(object.modelMatrix());
         }
 
-        if (!renderer.drawFrame(viewProj, models)) {
+        // Contorno celeste: el cubo alambre un 2% mas grande que el
+        // objeto, para que asoma por el borde de la malla.
+        std::vector<sk::Mat4> outlines;
+        outlines.reserve(selection.size());
+        for (const std::string& name : selection) {
+            const sk::SceneObject* object = scene.findByName(name);
+            if (object) {
+                outlines.push_back(object->modelMatrix() *
+                                   sk::scale(sk::Vec3{1.02f, 1.02f, 1.02f}));
+            }
+        }
+
+        // Rectangulo de arrastre mientras dura el marquee.
+        sk::ScreenRect marquee;
+        if (dragActive && inViewport(dragStart)) {
+            marquee.valid = true;
+            marquee.x0 = std::fmin(dragStart.x, window.mousePos().x);
+            marquee.y0 = std::fmin(dragStart.y, window.mousePos().y);
+            marquee.x1 = std::fmax(dragStart.x, window.mousePos().x);
+            marquee.y1 = std::fmax(dragStart.y, window.mousePos().y);
+        }
+
+        if (!renderer.drawFrame(viewProj, models, outlines, marquee)) {
             SK_ERROR("drawFrame fallo");
             return 1;
         }

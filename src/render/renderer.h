@@ -9,6 +9,16 @@
 
 namespace sk {
 
+// Rectangulo de seleccion (marquee) en pixeles de cliente, validado
+// mientras el usuario arrastra en el viewport.
+struct ScreenRect {
+    bool valid = false;
+    float x0 = 0.0f;
+    float y0 = 0.0f;
+    float x1 = 0.0f;
+    float y1 = 0.0f;
+};
+
 // Renderer Vulkan minimo: instancia, dispositivo, swapchain y dos
 // pipelines: lineas (rejilla de referencia del mundo) y triangulos (los
 // objetos "Part" de la escena).
@@ -25,7 +35,10 @@ public:
 
     // Devuelve false solo en error irrecuperable; los resize se resuelven
     // recreando la swapchain. objects: matriz modelo de cada Part.
-    bool drawFrame(const Mat4& viewProj, const std::vector<Mat4>& objects);
+    // outlines: matriz de cada objeto seleccionado (contorno celeste,
+    // ya con la escala 1.02 aplicada); marquee: rectangulo de arrastre.
+    bool drawFrame(const Mat4& viewProj, const std::vector<Mat4>& objects,
+                   const std::vector<Mat4>& outlines, const ScreenRect& marquee);
 
     // WM_SIZE de la ventana: llvmpipe no devuelve OUT_OF_DATE al
     // redimensionar, asi que hay que marcar la swapchain a mano.
@@ -58,6 +71,7 @@ private:
     bool createPipelines();
     bool createGridBuffers();
     bool createCubeBuffer();
+    bool createOutlineBuffers();  // contorno celeste + cuadrado marquee
     bool createVertexBuffer(const void* vertices, size_t vertexBytes,
                             VkBuffer* outBuffer, VkDeviceMemory* outMemory);
     bool createCommandPool();
@@ -108,6 +122,15 @@ private:
     VkBuffer cubeBuffer_ = VK_NULL_HANDLE;
     VkDeviceMemory cubeMemory_ = VK_NULL_HANDLE;
     uint32_t cubeVertexCount_ = 0;
+
+    // Lineas de seleccion: cubo alambre (contorno de objeto) y cuadrado
+    // en NDC para el rectangulo de arrastre.
+    VkBuffer outlineBuffer_ = VK_NULL_HANDLE;
+    VkDeviceMemory outlineMemory_ = VK_NULL_HANDLE;
+    uint32_t outlineVertexCount_ = 0;
+    VkBuffer marqueeBuffer_ = VK_NULL_HANDLE;
+    VkDeviceMemory marqueeMemory_ = VK_NULL_HANDLE;
+    uint32_t marqueeVertexCount_ = 0;
 
     VkCommandPool commandPool_ = VK_NULL_HANDLE;
     std::vector<VkCommandBuffer> commandBuffers_;

@@ -70,6 +70,7 @@ bool Renderer::init(Window& window) {
     if (!createPipelines()) return false;
     if (!createGridBuffers()) return false;
     if (!createCubeBuffer()) return false;
+    if (!createOutlineBuffers()) return false;
     if (!createCommandPool()) return false;
     if (!createSyncObjects()) return false;
     SK_INFO("Renderer Vulkan listo");
@@ -85,6 +86,10 @@ void Renderer::shutdown() {
     if (gridMemory_ != VK_NULL_HANDLE) vkFreeMemory(device_, gridMemory_, nullptr);
     if (cubeBuffer_ != VK_NULL_HANDLE) vkDestroyBuffer(device_, cubeBuffer_, nullptr);
     if (cubeMemory_ != VK_NULL_HANDLE) vkFreeMemory(device_, cubeMemory_, nullptr);
+    if (outlineBuffer_ != VK_NULL_HANDLE) vkDestroyBuffer(device_, outlineBuffer_, nullptr);
+    if (outlineMemory_ != VK_NULL_HANDLE) vkFreeMemory(device_, outlineMemory_, nullptr);
+    if (marqueeBuffer_ != VK_NULL_HANDLE) vkDestroyBuffer(device_, marqueeBuffer_, nullptr);
+    if (marqueeMemory_ != VK_NULL_HANDLE) vkFreeMemory(device_, marqueeMemory_, nullptr);
     if (pipeline_ != VK_NULL_HANDLE) vkDestroyPipeline(device_, pipeline_, nullptr);
     if (meshPipeline_ != VK_NULL_HANDLE) vkDestroyPipeline(device_, meshPipeline_, nullptr);
     if (pipelineLayout_ != VK_NULL_HANDLE) vkDestroyPipelineLayout(device_, pipelineLayout_, nullptr);
@@ -752,6 +757,57 @@ bool Renderer::createCubeBuffer() {
                               &cubeBuffer_, &cubeMemory_);
 }
 
+bool Renderer::createOutlineBuffers() {
+    // Celeste de seleccion: RGB(125,210,255) en 0..1.
+    constexpr float cr = 0.49f;
+    constexpr float cg = 0.82f;
+    constexpr float cb = 1.0f;
+
+    // Cubo alambre de 12 aristas (24 vertices) ligeramente mas grande
+    // que el cubo: el contorno asoma por el borde de la malla.
+    constexpr float p = 0.5f;
+    const float corners[8][3] = {
+        {-p, -p, -p}, {p, -p, -p}, {p, p, -p}, {-p, p, -p},
+        {-p, -p, p},  {p, -p, p},  {p, p, p},  {-p, p, p},
+    };
+    const int edges[12][2] = {
+        {0, 1}, {1, 2}, {2, 3}, {3, 0},  // cara -Z
+        {4, 5}, {5, 6}, {6, 7}, {7, 4},  // cara +Z
+        {0, 4}, {1, 5}, {2, 6}, {3, 7},  // aristas de union
+    };
+
+    std::vector<Vertex> outline;
+    outline.reserve(24);
+    for (const auto& edge : edges) {
+        for (int e = 0; e < 2; ++e) {
+            const float* v = corners[edge[e]];
+            outline.push_back({{v[0], v[1], v[2]}, {cr, cg, cb}});
+        }
+    }
+    outlineVertexCount_ = static_cast<uint32_t>(outline.size());
+    if (!createVertexBuffer(outline.data(), sizeof(Vertex) * outline.size(),
+                            &outlineBuffer_, &outlineMemory_)) {
+        return false;
+    }
+
+    // Cuadrado unitario en [-1,1] (NDC): el MVP del marquee solo lo
+    // escala y centra en pixeles; z=0 para que siempre pase el depth.
+    const float quad[8][3] = {
+        {-1.0f, -1.0f, 0.0f}, {1.0f, -1.0f, 0.0f},
+        {1.0f, -1.0f, 0.0f},  {1.0f, 1.0f, 0.0f},
+        {1.0f, 1.0f, 0.0f},   {-1.0f, 1.0f, 0.0f},
+        {-1.0f, 1.0f, 0.0f},  {-1.0f, -1.0f, 0.0f},
+    };
+    std::vector<Vertex> marquee;
+    marquee.reserve(8);
+    for (const float* v : quad) {
+        marquee.push_back({{v[0], v[1], v[2]}, {cr, cg, cb}});
+    }
+    marqueeVertexCount_ = static_cast<uint32_t>(marquee.size());
+    return createVertexBuffer(marquee.data(), sizeof(Vertex) * marquee.size(),
+                              &marqueeBuffer_, &marqueeMemory_);
+}
+
 bool Renderer::createVertexBuffer(const void* vertices, size_t vertexBytes,
                                   VkBuffer* outBuffer, VkDeviceMemory* outMemory) {
     VkBufferCreateInfo bufferCi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -860,7 +916,9 @@ bool Renderer::recreateSwapchain() {
     return true;
 }
 
-bool Renderer::drawFrame(const Mat4& viewProj, const std::vector<Mat4>& objects) {
+bool Renderer::drawFrame(const Mat4& viewProj, const std::vector<Mat4>& objects,
+                         const std::vector<Mat4>& outlines,
+                         const ScreenRect& marquee) {
     if (swapchainDirty_ && !recreateSwapchain()) return false;
     if (swapchain_ == VK_NULL_HANDLE) return true; // ventana minimizada
 
@@ -937,6 +995,42 @@ bool Renderer::drawFrame(const Mat4& viewProj, const std::vector<Mat4>& objects)
                                0, sizeof(float) * 16, &mvp);
             vkCmdDraw(command, cubeVertexCount_, 1, 0, 0);
         }
+    }
+
+    // Contorno celeste de los objetos seleccionados (lineas).
+    if (!outlines.empty() && outlineBuffer_ != VK_NULL_HANDLE) {
+        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+        const VkBuffer outlineBuffer = outlineBuffer_;
+        const VkDeviceSize outlineOffset = 0;
+        vkCmdBindVertexBuffers(command, 0, 1, &outlineBuffer, &outlineOffset);
+
+        for (const Mat4& model : outlines) {
+            const Mat4 mvp = viewProj * model;
+            vkCmdPushConstants(command, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT,
+                               0, sizeof(float) * 16, &mvp);
+            vkCmdDraw(command, outlineVertexCount_, 1, 0, 0);
+        }
+    }
+
+    // Rectangulo de arrastre (marquee): coordenadas de pantalla a NDC
+    // con un MVP que solo centra y escala el cuadrado unitario.
+    if (marquee.valid && marqueeBuffer_ != VK_NULL_HANDLE) {
+        const float w = static_cast<float>(swapchainExtent_.width);
+        const float h = static_cast<float>(swapchainExtent_.height);
+        const Vec3 center{((marquee.x0 + marquee.x1) * 0.5f) / w * 2.0f - 1.0f,
+                          ((marquee.y0 + marquee.y1) * 0.5f) / h * 2.0f - 1.0f,
+                          0.0f};
+        const Vec3 half{(marquee.x1 - marquee.x0) * 0.5f / w,
+                        (marquee.y1 - marquee.y0) * 0.5f / h, 1.0f};
+        const Mat4 mvp = translate(center) * sk::scale(half);
+
+        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+        const VkBuffer marqueeBuffer = marqueeBuffer_;
+        const VkDeviceSize marqueeOffset = 0;
+        vkCmdBindVertexBuffers(command, 0, 1, &marqueeBuffer, &marqueeOffset);
+        vkCmdPushConstants(command, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT,
+                           0, sizeof(float) * 16, &mvp);
+        vkCmdDraw(command, marqueeVertexCount_, 1, 0, 0);
     }
 
     vkCmdEndRenderPass(command);
