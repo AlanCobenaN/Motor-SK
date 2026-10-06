@@ -50,8 +50,20 @@ Ejecutable `.exe` con:
        arrastrar un rectangulo (marquee) selecciona varios objetos a la vez;
        el Explorer marca el objeto activo, Properties pasa a
        "-N objetos seleccionados-" con varios, y los objetos elegidos se
-       rodean de un contorno celeste (mas el rectangulo de arrastre mientras
-       dura el marquee)
+        rodean de un contorno celeste (mas el rectangulo de arrastre mientras
+        dura el marquee)
+- [x] Barra de herramientas: botones con icono y texto (Seleccionar, Mover,
+        Escalar, Rotar) en la banda superior y teclas 1-4; la herramienta
+        activa se registra en el log
+- [x] Gizmo 3D en el viewport para la seleccion: tres asas de mundo en
+        X/Y/Z coloreadas y reordenadas por herramienta (mover desplaza,
+        escalar escala, rotar rota), hover con tinte claro y cursores
+        distintos, arrastre que aplica el mismo delta a todos los objetos
+        seleccionados y escribe el Transform y la escena al soltar; ESC
+        cancela el arrastre
+- [x] Foco del teclado: al escribir en Properties las teclas de camara y
+        herramientas quedan bloqueadas, y un click en la vista las libera
+        (clase EDIT detectada sin distinguir mayusculas)
 - [ ] Abrir un archivo/archivo de escena
 - [x] Cámara libre: WASD para moverse, click derecho para mirar, scroll para
        acercar/alejar
