@@ -15,6 +15,7 @@
 #include "project/project.h"
 #include "render/renderer.h"
 #include "scene/camera.h"
+#include "scene/gizmo.h"
 #include "scene/picking.h"
 #include "scene/scene.h"
 #include "ui/code_view.h"
@@ -54,6 +55,10 @@ double nowSeconds() {
     QueryPerformanceCounter(&counter);
     return static_cast<double>(counter.QuadPart) / static_cast<double>(frequency.QuadPart);
 }
+
+// Nombres de las herramientas de la banda (indices 0-3), para los
+// registros de cambio y de arrastre del gizmo.
+const char* kToolNames[] = {"seleccionar", "mover", "escalar", "rotar"};
 
 } // namespace
 
@@ -206,8 +211,7 @@ int main(int argc, char** argv) {
 
     // Cambio de herramienta (botones de la banda o teclas 1-4).
     workspace.setOnToolChanged([](int tool) {
-        static const char* names[] = {"seleccionar", "mover", "escalar", "rotar"};
-        SK_INFO("herramienta: %s", names[tool]);
+        SK_INFO("herramienta: %s", kToolNames[tool]);
     });
 
     // Seleccion en el Explorer -> Properties (objetos de la escena o la
@@ -300,6 +304,23 @@ int main(int argc, char** argv) {
     bool dragPending = false;  // pressed dentro del viewport, sin mover
     bool dragActive = false;   // supero el umbral: es un arrastre
     sk::Vec2 dragStart{};
+
+    // Gizmo de herramientas: arrastre activo + eje bajo el puntero.
+    sk::GizmoDrag gizmoDrag;
+    int hoverAxis = -1;
+    // Registro "gizmo eje X punta (x,y)": una sola vez por punta, para
+    // que las pruebas sepan donde pulsar sin repetir el log en cada frame.
+    int lastHoverTool = -1;
+    int lastHoverAxis = -1;
+    int lastHoverTx = -1;
+    int lastHoverTy = -1;
+    std::string lastHoverPrimary;
+    bool cursorForced = false;
+    // Puntas de los ejes logeadas al cambiar de herramienta o de
+    // seleccion (y tras cada arrastre): las pruebas leen de aqui donde
+    // poner el puntero sin tener que barrer el viewport.
+    int lastTipsTool = -1;
+    std::string lastTipsPrimary;
     auto inViewport = [&](const sk::Vec2& p) {
         if (!view3d || !place.visible()) return false;
         const float x0 = static_cast<float>(sk::PlaceView::kPropertiesWidth);
@@ -347,11 +368,17 @@ int main(int argc, char** argv) {
             continue;
         }
 
-        // Esc: cancela el arrastre de seleccion si esta en curso; si no,
-        // vuelve al panel de proyectos. Solo con la ventana enfocada
-        // (keyDown usa GetAsyncKeyState, que es global).
+        // Esc: cancela el arrastre del gizmo si esta en curso; si no, el
+        // del marquee; si no, vuelve al panel de proyectos. Solo con la
+        // ventana enfocada (keyDown usa GetAsyncKeyState, que es global).
         const bool escDown = window.keyDown(VK_ESCAPE) && window.hasFocus();
-        if (escDown && !escWasDown && (dragPending || dragActive)) {
+        if (escDown && !escWasDown && gizmoDrag.active) {
+            sk::gizmoRevert(gizmoDrag, scene);
+            gizmoDrag.active = false;
+            lastTipsTool = -1; // las puntas vuelven a su sitio
+            SK_INFO("gizmo cancelado");
+            applySelection(selection, primary);
+        } else if (escDown && !escWasDown && (dragPending || dragActive)) {
             dragPending = false;
             dragActive = false;
             SK_INFO("marquee cancelado");
@@ -391,9 +418,11 @@ int main(int argc, char** argv) {
         camKeysWasDown = camKeys;
 
         // Teclas 1-4: cambiar de herramienta (solo con la ventana
-        // enfocada, en PLACE y sin escribir en un campo de texto).
+        // enfocada, en PLACE, sin escribir en un campo de texto y sin
+        // un arrastre del gizmo en curso).
         const bool toolKeysOk = window.hasFocus() && !window.textInputFocused() &&
-                                workspace.visible() && place.visible();
+                                workspace.visible() && place.visible() &&
+                                !gizmoDrag.active;
         int toolKeyNow = 0;
         if (toolKeysOk) {
             if (window.keyDown('1')) toolKeyNow = 1;
@@ -418,11 +447,137 @@ int main(int argc, char** argv) {
         const int vpH = window.framebufferHeight();
         const std::optional<sk::Vec2> pressed = window.consumeLeftPressed();
         const std::optional<sk::Vec2> released = window.consumeLeftReleased();
-        if (pressed && inViewport(*pressed)) {
-            dragPending = true;
-            dragActive = false;
-            dragStart = *pressed;
+
+        // --- Gizmo de herramientas: estado, hover y arrastre ---
+        const int tool = workspace.tool();
+        const sk::SceneObject* primaryObj =
+            primary.empty() ? nullptr : scene.findByName(primary);
+        const bool gizmoReady =
+            place.visible() && workspace.visible() && tool >= 1 && primaryObj;
+        const sk::Vec3 gizmoOrigin = primaryObj ? primaryObj->position : sk::Vec3{};
+        float gizmoScaleMax = 1.0f;
+        if (primaryObj) {
+            gizmoScaleMax = std::fmax(
+                std::fabs(primaryObj->scale.x),
+                std::fmax(std::fabs(primaryObj->scale.y),
+                          std::fabs(primaryObj->scale.z)));
         }
+        // Durante el arrastre el tamano visual se congela (L del arrastre).
+        if (gizmoDrag.active) gizmoScaleMax = 2.0f * gizmoDrag.L - 2.0f;
+        const sk::Vec3 gizmoViewDir =
+            sk::normalize(camera.position() - gizmoOrigin);
+
+        // Eje bajo el puntero (solo con el raton en el viewport y sin
+        // arrastre en curso). El hit test ignora los colores, asi que las
+        // lineas de sondeo se construyen sin resaltar.
+        if (gizmoReady && !gizmoDrag.active && inViewport(window.mousePos())) {
+            const std::vector<sk::GizmoLine> probe =
+                sk::buildGizmo(tool, gizmoOrigin, gizmoScaleMax, gizmoViewDir, -1);
+            hoverAxis = sk::hitTestGizmo(probe, window.mousePos(), viewProj, vpW, vpH);
+        } else {
+            hoverAxis = -1;
+        }
+
+        // Puntas de los ejes al cambiar de herramienta o de objeto
+        // primario (o tras un arrastre, que deja la marca sin marcar).
+        if (gizmoReady && !gizmoDrag.active &&
+            (tool != lastTipsTool || primary != lastTipsPrimary)) {
+            sk::Vec3 ndc;
+            int px[3] = {-1, -1, -1};
+            int py[3] = {-1, -1, -1};
+            for (int axis = 0; axis < 3; ++axis) {
+                const sk::Vec3 tip =
+                    sk::gizmoHandlePoint(tool, axis, gizmoOrigin, gizmoScaleMax);
+                if (sk::transformPoint(viewProj, tip, ndc)) {
+                    px[axis] = static_cast<int>((ndc.x * 0.5f + 0.5f) * vpW);
+                    py[axis] = static_cast<int>((ndc.y * 0.5f + 0.5f) * vpH);
+                }
+            }
+            SK_INFO("gizmo puntas X(%d,%d) Y(%d,%d) Z(%d,%d)", px[0], py[0],
+                    px[1], py[1], px[2], py[2]);
+            lastTipsTool = tool;
+            lastTipsPrimary = primary;
+            lastHoverAxis = -1; // que el hover vuelva a registrar
+        }
+
+        if (pressed && inViewport(*pressed)) {
+            bool startedGizmo = false;
+            // El eje se recalcula con el punto exacto del press: el hover
+            // (hoverAxis) se deriva de mousePos y puede haberse perdido si
+            // un movimiento real del raton llego entre el hover y el click.
+            int pressAxis = -1;
+            if (gizmoReady && !gizmoDrag.active) {
+                const std::vector<sk::GizmoLine> probe = sk::buildGizmo(
+                    tool, gizmoOrigin, gizmoScaleMax, gizmoViewDir, -1);
+                pressAxis = sk::hitTestGizmo(probe, *pressed, viewProj, vpW, vpH);
+            }
+            if (pressAxis >= 0) {
+                const sk::Ray ray =
+                    sk::rayFromCamera(camera, aspect, 60.0f, *pressed, vpW, vpH);
+                startedGizmo = sk::gizmoBegin(gizmoDrag, tool, pressAxis, scene,
+                                              selection, gizmoOrigin, gizmoScaleMax,
+                                              gizmoViewDir, ray);
+                if (startedGizmo) {
+                    // El arrastre del gizmo sustituye al marquee.
+                    dragPending = false;
+                    dragActive = false;
+                    SK_INFO("gizmo %s: arrastre eje %c", kToolNames[tool],
+                            "XYZ"[pressAxis]);
+                }
+            }
+            if (!startedGizmo && !gizmoDrag.active) {
+                dragPending = true;
+                dragActive = false;
+                dragStart = *pressed;
+            }
+        }
+
+        // Arrastre del gizmo: el delta se aplica a toda la seleccion.
+        if (gizmoDrag.active) {
+            const sk::Ray ray = sk::rayFromCamera(
+                camera, aspect, 60.0f, window.mousePos(), vpW, vpH);
+            if (sk::gizmoUpdate(gizmoDrag, ray, scene) && selection.size() == 1 &&
+                primaryObj) {
+                place.showObject(*primaryObj); // Transform al dia
+            }
+        }
+
+        // Registro al apuntar a un eje (una sola vez por punta: las
+        // pruebas hacen hover, leen la punta y arrastran).
+        if (hoverAxis >= 0 && gizmoReady && !gizmoDrag.active) {
+            const sk::Vec3 tip = sk::gizmoHandlePoint(
+                tool, hoverAxis, gizmoOrigin, gizmoScaleMax);
+            int tx = -1;
+            int ty = -1;
+            sk::Vec3 ndc;
+            if (sk::transformPoint(viewProj, tip, ndc)) {
+                tx = static_cast<int>((ndc.x * 0.5f + 0.5f) * vpW);
+                ty = static_cast<int>((ndc.y * 0.5f + 0.5f) * vpH);
+            }
+            if (hoverAxis != lastHoverAxis || tool != lastHoverTool ||
+                primary != lastHoverPrimary || tx != lastHoverTx ||
+                ty != lastHoverTy) {
+                SK_INFO("gizmo eje %c punta (%d,%d)", "XYZ"[hoverAxis], tx, ty);
+                lastHoverTool = tool;
+                lastHoverAxis = hoverAxis;
+                lastHoverPrimary = primary;
+                lastHoverTx = tx;
+                lastHoverTy = ty;
+            }
+        } else if (hoverAxis < 0) {
+            lastHoverAxis = -1;
+        }
+
+        // Cursor de cruz de mover sobre el gizmo o mientras se arrastra.
+        const bool wantMoveCursor = gizmoDrag.active || hoverAxis >= 0;
+        if (wantMoveCursor) {
+            SetCursor(LoadCursorA(nullptr, IDC_SIZEALL));
+            cursorForced = true;
+        } else if (cursorForced) {
+            SetCursor(LoadCursorA(nullptr, IDC_ARROW));
+            cursorForced = false;
+        }
+
         if (dragPending && !dragActive) {
             const int thX = GetSystemMetrics(SM_CXDRAG);
             const int thY = GetSystemMetrics(SM_CYDRAG);
@@ -436,7 +591,28 @@ int main(int argc, char** argv) {
                         static_cast<int>(pos.x), static_cast<int>(pos.y));
             }
         }
-        if (released && (dragPending || dragActive)) {
+        if (released && gizmoDrag.active) {
+            // Fin del arrastre: registrar el cambio, guardar y refrescar.
+            for (const sk::GizmoSnapshot& snap : gizmoDrag.snapshots) {
+                const sk::SceneObject* object = scene.findByName(snap.name);
+                if (!object) continue;
+                SK_INFO("gizmo %s: %s pos (%.2f,%.2f,%.2f)->(%.2f,%.2f,%.2f) "
+                        "rot (%.2f,%.2f,%.2f)->(%.2f,%.2f,%.2f) "
+                        "esc (%.2f,%.2f,%.2f)->(%.2f,%.2f,%.2f)",
+                        kToolNames[gizmoDrag.tool], snap.name.c_str(),
+                        snap.position.x, snap.position.y, snap.position.z,
+                        object->position.x, object->position.y,
+                        object->position.z, snap.rotation.x, snap.rotation.y,
+                        snap.rotation.z, object->rotation.x, object->rotation.y,
+                        object->rotation.z, snap.scale.x, snap.scale.y,
+                        snap.scale.z, object->scale.x, object->scale.y,
+                        object->scale.z);
+            }
+            gizmoDrag.active = false;
+            lastTipsTool = -1; // las puntas han podido cambiar
+            saveScene();
+            applySelection(selection, primary);
+        } else if (released && (dragPending || dragActive)) {
             const bool wasDrag = dragActive;
             dragPending = false;
             dragActive = false;
@@ -542,9 +718,22 @@ int main(int argc, char** argv) {
             marquee.y1 = std::fmax(dragStart.y, window.mousePos().y);
         }
 
-        // Lineas del gizmo: de momento vacias (se rellenan en el paso de
-        // herramientas).
-        const std::vector<sk::LineVertex> gizmoLines;
+        // Lineas del gizmo: un vertice por extremo de segmento (el
+        // renderer clama al buffer si hubiera mas de kGizmoCapacity).
+        std::vector<sk::LineVertex> gizmoLines;
+        if (gizmoReady) {
+            const int paintAxis = gizmoDrag.active ? gizmoDrag.axis : hoverAxis;
+            const std::vector<sk::GizmoLine> geo = sk::buildGizmo(
+                gizmoDrag.active ? gizmoDrag.tool : tool, gizmoOrigin,
+                gizmoScaleMax, gizmoViewDir, paintAxis);
+            gizmoLines.reserve(geo.size() * 2);
+            for (const sk::GizmoLine& line : geo) {
+                gizmoLines.push_back({{line.a.x, line.a.y, line.a.z},
+                                      {line.color.x, line.color.y, line.color.z}});
+                gizmoLines.push_back({{line.b.x, line.b.y, line.b.z},
+                                      {line.color.x, line.color.y, line.color.z}});
+            }
+        }
 
         if (!renderer.drawFrame(viewProj, models, outlines, marquee, gizmoLines)) {
             SK_ERROR("drawFrame fallo");

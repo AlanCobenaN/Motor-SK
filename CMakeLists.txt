@@ -33,6 +33,7 @@ add_executable(${PROJECT_NAME}
     src/project/scripts.cpp
     src/scene/scene.cpp
     src/scene/picking.cpp
+    src/scene/gizmo.cpp
     src/ui/code_view.cpp
     src/render/renderer.cpp
     src/ui/projects_panel.cpp
