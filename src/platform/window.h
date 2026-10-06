@@ -27,6 +27,15 @@ public:
 
     bool keyDown(int vk) const;
 
+    // true si esta ventana es la de primer plano: el teclado no debe
+    // mover la camara ni disparar atajos cuando el usuario esta en otra
+    // aplicacion (WASD dejaba de funcionar solo, pero al reves no).
+    bool hasFocus() const;
+
+    // true si el foco de teclado esta en un campo de texto (EDIT): la
+    // camara y los atajos numericos se pausan mientras se escribe.
+    bool textInputFocused() const;
+
     bool mouseRightDown() const { return rmbDown_; }
     bool mouseLeftDown() const { return lmbDown_; }
 

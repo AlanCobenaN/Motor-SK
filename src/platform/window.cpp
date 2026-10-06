@@ -114,6 +114,18 @@ bool Window::keyDown(int vk) const {
     return (GetAsyncKeyState(vk) & 0x8000) != 0;
 }
 
+bool Window::hasFocus() const {
+    return GetForegroundWindow() == static_cast<HWND>(hwnd_);
+}
+
+bool Window::textInputFocused() const {
+    HWND focus = GetFocus();
+    if (!focus) return false;
+    char cls[32]{};
+    GetClassNameA(focus, cls, static_cast<int>(sizeof(cls)));
+    return lstrcmpA(cls, "EDIT") == 0;
+}
+
 Vec2 Window::consumeMouseDelta() const {
     Vec2 d = pendingDelta_;
     pendingDelta_ = {};

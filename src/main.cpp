@@ -287,6 +287,7 @@ int main(int argc, char** argv) {
     double lastTime = startTime;
     int frame = 0;
     bool escWasDown = false;
+    bool camKeysWasDown = false;
 
     // Arrastre de seleccion (marquee) en el viewport de PLACE.
     bool dragPending = false;  // pressed dentro del viewport, sin mover
@@ -340,8 +341,9 @@ int main(int argc, char** argv) {
         }
 
         // Esc: cancela el arrastre de seleccion si esta en curso; si no,
-        // vuelve al panel de proyectos.
-        const bool escDown = window.keyDown(VK_ESCAPE);
+        // vuelve al panel de proyectos. Solo con la ventana enfocada
+        // (keyDown usa GetAsyncKeyState, que es global).
+        const bool escDown = window.keyDown(VK_ESCAPE) && window.hasFocus();
         if (escDown && !escWasDown && (dragPending || dragActive)) {
             dragPending = false;
             dragActive = false;
@@ -367,6 +369,19 @@ int main(int argc, char** argv) {
         if (dt > 0.1f) dt = 0.1f; // proteccion contra picos (ventana arrastrada)
 
         camera.update(dt, window);
+
+        // Log al empezar a mover la camara (mismo criterio de foco que
+        // Camera::update): las pruebas comprueban que WASD/Q/E no
+        // funcionan con otra aplicacion en primer plano.
+        const bool camKeys = window.hasFocus() && !window.textInputFocused() &&
+                             (window.keyDown('W') || window.keyDown('A') ||
+                              window.keyDown('S') || window.keyDown('D') ||
+                              window.keyDown('Q') || window.keyDown('E'));
+        if (camKeys && !camKeysWasDown) {
+            const sk::Vec3 p = camera.position();
+            SK_INFO("camara (%.2f,%.2f,%.2f)", p.x, p.y, p.z);
+        }
+        camKeysWasDown = camKeys;
 
         const float aspect = (window.framebufferHeight() > 0)
             ? static_cast<float>(window.framebufferWidth()) /

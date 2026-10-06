@@ -10,6 +10,15 @@ namespace sk {
 class Camera {
 public:
     void update(float dt, const Window& window) {
+        // Otra app en primer plano: el teclado no mueve la camara
+        // (GetAsyncKeyState es global) y los deltas acumulados se
+        // descartan para que no se salten al volver.
+        if (!window.hasFocus()) {
+            window.consumeMouseDelta();
+            window.consumeWheel();
+            return;
+        }
+
         // Arrastre de seleccion (boton izquierdo): la camara quieta y los
         // eventos de mirar/rueda consumidos para que no se acumulen.
         if (window.mouseLeftDown()) {
@@ -30,20 +39,24 @@ public:
         }
 
         // W/S adelante/atras, A/D strafe, Q/E bajar/subir, Shift rapido.
-        Vec3 right = cross(forward(), kUp);
-        Vec3 move{};
-        if (window.keyDown('W')) move += forward();
-        if (window.keyDown('S')) move -= forward();
-        if (window.keyDown('D')) move += right;
-        if (window.keyDown('A')) move -= right;
-        if (window.keyDown('E')) move += kUp;
-        if (window.keyDown('Q')) move -= kUp;
+        // Se pausan mientras el foco esta en un campo de texto (los campos
+        // Transform de Properties); escribir "w" ahi no debe mover la vista.
+        if (!window.textInputFocused()) {
+            Vec3 right = cross(forward(), kUp);
+            Vec3 move{};
+            if (window.keyDown('W')) move += forward();
+            if (window.keyDown('S')) move -= forward();
+            if (window.keyDown('D')) move += right;
+            if (window.keyDown('A')) move -= right;
+            if (window.keyDown('E')) move += kUp;
+            if (window.keyDown('Q')) move -= kUp;
 
-        float speed = kMoveSpeed;
-        if (window.keyDown(kKeyShift)) speed *= 3.0f;
+            float speed = kMoveSpeed;
+            if (window.keyDown(kKeyShift)) speed *= 3.0f;
 
-        if (length(move) > 0.0f) {
-            position_ += normalize(move) * (speed * dtScale);
+            if (length(move) > 0.0f) {
+                position_ += normalize(move) * (speed * dtScale);
+            }
         }
 
         // Rueda: acercar/alejar a lo largo de la direccion de la mirada.
