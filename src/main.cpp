@@ -1,7 +1,10 @@
 #include <windows.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -12,6 +15,7 @@
 #include "project/project.h"
 #include "render/renderer.h"
 #include "scene/camera.h"
+#include "scene/picking.h"
 #include "scene/scene.h"
 #include "ui/code_view.h"
 #include "ui/place_view.h"
@@ -102,6 +106,14 @@ int main(int argc, char** argv) {
     sk::PlaceView place;
     sk::CodeView code;
 
+    // Seleccion activa (nombres en la escena). "primary" es el ultimo
+    // objeto tocado: el que el Explorer marca con el caret.
+    std::vector<std::string> selection;
+    std::string primary;
+    // Log de posiciones en pantalla: al cambiar la escena, para que las
+    // pruebas sepan donde hacer click.
+    bool logProjection = false;
+
     // Ruta absoluta de la escena del proyecto (escenas/inicio.scene).
     auto scenePath = [](const sk::Project& p) {
         return p.folder + "/" + p.scene;
@@ -138,6 +150,7 @@ int main(int argc, char** argv) {
         code.open(active);
         SetWindowTextA(static_cast<HWND>(window.nativeHandle()),
                        ("Motor SK - " + active.name).c_str());
+        logProjection = true;
         SK_INFO("Proyecto abierto: %s", active.name.c_str());
     };
 
@@ -187,21 +200,25 @@ int main(int argc, char** argv) {
         const std::string name = scene.addPart().name;
         place.addObject(name);
         saveScene();
+        logProjection = true;
         SK_INFO("Part anadido: %s", name.c_str());
     });
 
     // Seleccion en el Explorer -> Properties (objetos de la escena o la
-    // raiz dimension01).
+    // raiz dimension01). El estado de seleccion (multi) vive aqui y el
+    // arbol lo refleja.
     place.setOnSelectionChanged([&](const std::string& name) {
-        if (name.empty()) {
-            place.showNoSelection();
-            return;
-        }
-        const sk::SceneObject* object = scene.findByName(name);
+        const sk::SceneObject* object =
+            name.empty() ? nullptr : scene.findByName(name);
         if (object) {
+            selection = {name};
+            primary = name;
             place.showObject(*object);
         } else {
-            place.showRoot();
+            selection.clear();
+            primary.clear();
+            place.showNoSelection();
+            if (!name.empty()) place.showRoot(); // raiz dimension01
         }
     });
 
@@ -271,6 +288,39 @@ int main(int argc, char** argv) {
     int frame = 0;
     bool escWasDown = false;
 
+    // Arrastre de seleccion (marquee) en el viewport de PLACE.
+    bool dragPending = false;  // pressed dentro del viewport, sin mover
+    bool dragActive = false;   // supero el umbral: es un arrastre
+    sk::Vec2 dragStart{};
+    auto inViewport = [&](const sk::Vec2& p) {
+        if (!view3d || !place.visible()) return false;
+        const float x0 = static_cast<float>(sk::PlaceView::kPropertiesWidth);
+        const float x1 = static_cast<float>(window.framebufferWidth()) -
+                         static_cast<float>(sk::PlaceView::kExplorerWidth);
+        const float y0 = static_cast<float>(sk::WorkspaceTabs::kTopBandHeight);
+        return p.x >= x0 && p.x <= x1 && p.y >= y0 &&
+               p.y <= static_cast<float>(window.framebufferHeight());
+    };
+    // Pinta Properties + caret del Explorer tras cambiar la seleccion.
+    auto applySelection = [&](std::vector<std::string> names,
+                              const std::string& newPrimary) {
+        selection = std::move(names);
+        primary = newPrimary;
+        place.syncTreeSelection(primary);
+        if (selection.empty()) {
+            place.showNoSelection();
+        } else if (selection.size() == 1) {
+            const sk::SceneObject* object = scene.findByName(selection.front());
+            if (object) {
+                place.showObject(*object);
+            } else {
+                place.showNoSelection();
+            }
+        } else {
+            place.showMultiple(static_cast<int>(selection.size()));
+        }
+    };
+
     while (window.pumpEvents() && (maxFrames < 0 || frame < maxFrames)) {
         if (window.consumeResized()) {
             SK_INFO("resize: %dx%d", window.framebufferWidth(), window.framebufferHeight());
@@ -289,10 +339,17 @@ int main(int argc, char** argv) {
             continue;
         }
 
-        // Esc: volver al panel de proyectos.
+        // Esc: cancela el arrastre de seleccion si esta en curso; si no,
+        // vuelve al panel de proyectos.
         const bool escDown = window.keyDown(VK_ESCAPE);
-        if (escDown && !escWasDown) {
+        if (escDown && !escWasDown && (dragPending || dragActive)) {
+            dragPending = false;
+            dragActive = false;
+            SK_INFO("marquee cancelado");
+        } else if (escDown && !escWasDown) {
             view3d = false;
+            dragPending = false;
+            dragActive = false;
             panel.setVisible(true);
             panel.refresh();
             workspace.setVisible(false);
@@ -317,6 +374,107 @@ int main(int argc, char** argv) {
             : 16.0f / 9.0f;
         const sk::Mat4 projection = sk::perspective(sk::radians(60.0f), aspect, 0.1f, 200.0f);
         const sk::Mat4 viewProj = projection * camera.view();
+
+        // --- Seleccion en el viewport (click / Ctrl+click / marquee) ---
+        const int vpW = window.framebufferWidth();
+        const int vpH = window.framebufferHeight();
+        const std::optional<sk::Vec2> pressed = window.consumeLeftPressed();
+        const std::optional<sk::Vec2> released = window.consumeLeftReleased();
+        if (pressed && inViewport(*pressed)) {
+            dragPending = true;
+            dragActive = false;
+            dragStart = *pressed;
+        }
+        if (dragPending && !dragActive) {
+            const int thX = GetSystemMetrics(SM_CXDRAG);
+            const int thY = GetSystemMetrics(SM_CYDRAG);
+            const sk::Vec2 pos = window.mousePos();
+            if (std::abs(pos.x - dragStart.x) > thX ||
+                std::abs(pos.y - dragStart.y) > thY) {
+                dragActive = true;
+                SK_INFO("marquee (%d,%d)-(%d,%d)",
+                        static_cast<int>(dragStart.x),
+                        static_cast<int>(dragStart.y),
+                        static_cast<int>(pos.x), static_cast<int>(pos.y));
+            }
+        }
+        if (released && (dragPending || dragActive)) {
+            const bool wasDrag = dragActive;
+            dragPending = false;
+            dragActive = false;
+            const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+            if (wasDrag) {
+                // Rectangulo de arrastre, clamado al viewport.
+                float x0 = std::fmin(dragStart.x, released->x);
+                float y0 = std::fmin(dragStart.y, released->y);
+                float x1 = std::fmax(dragStart.x, released->x);
+                float y1 = std::fmax(dragStart.y, released->y);
+                const float vx0 = static_cast<float>(sk::PlaceView::kPropertiesWidth);
+                const float vx1 = static_cast<float>(vpW) -
+                                  static_cast<float>(sk::PlaceView::kExplorerWidth);
+                const float vy0 = static_cast<float>(sk::WorkspaceTabs::kTopBandHeight);
+                const float vy1 = static_cast<float>(vpH);
+                x0 = std::fmax(x0, vx0);
+                y0 = std::fmax(y0, vy0);
+                x1 = std::fmin(x1, vx1);
+                y1 = std::fmin(y1, vy1);
+                std::vector<std::string> hits;
+                if (x0 < x1 && y0 < y1) {
+                    hits = sk::selectInRect(scene, viewProj,
+                                            sk::Vec2{x0, y0}, sk::Vec2{x1, y1},
+                                            vpW, vpH);
+                }
+                SK_INFO("marquee -> %d objetos", static_cast<int>(hits.size()));
+                std::string newPrimary = primary;
+                if (std::find(hits.begin(), hits.end(), primary) == hits.end()) {
+                    newPrimary = hits.empty() ? std::string() : hits.front();
+                }
+                applySelection(std::move(hits), newPrimary);
+            } else {
+                // Click simple: el objeto mas cercano bajo el puntero.
+                const std::string hit = sk::pickObject(
+                    scene, sk::rayFromCamera(camera, aspect, 60.0f, *released,
+                                             vpW, vpH));
+                SK_INFO("pick (%d,%d) -> %s", static_cast<int>(released->x),
+                        static_cast<int>(released->y),
+                        hit.empty() ? "(nada)" : hit.c_str());
+                std::vector<std::string> names = selection;
+                std::string newPrimary = primary;
+                if (hit.empty()) {
+                    names.clear();       // click en vacio: deselecciona
+                    newPrimary.clear();
+                } else if (ctrl) {
+                    const auto it = std::find(names.begin(), names.end(), hit);
+                    if (it != names.end()) {
+                        names.erase(it); // quitar de la seleccion
+                        if (newPrimary == hit) {
+                            newPrimary =
+                                names.empty() ? std::string() : names.front();
+                        }
+                    } else {
+                        names.push_back(hit); // anadir (Ctrl)
+                        newPrimary = hit;
+                    }
+                } else {
+                    names = {hit};
+                    newPrimary = hit;
+                }
+                applySelection(std::move(names), newPrimary);
+            }
+        }
+
+        if (logProjection && place.visible()) {
+            logProjection = false;
+            for (const sk::SceneObject& object : scene.objects()) {
+                sk::Vec3 ndc;
+                if (sk::transformPoint(viewProj, object.position, ndc)) {
+                    const float px = (ndc.x * 0.5f + 0.5f) * vpW;
+                    const float py = (ndc.y * 0.5f + 0.5f) * vpH;
+                    SK_INFO("%s pantalla (%d,%d)", object.name.c_str(),
+                            static_cast<int>(px), static_cast<int>(py));
+                }
+            }
+        }
 
         std::vector<sk::Mat4> models;
         models.reserve(scene.objects().size());

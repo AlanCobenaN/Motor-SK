@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <string>
+#include <vector>
 
 #include "../scene/scene.h"
 
@@ -45,6 +46,15 @@ public:
     void showRoot();
     void showNoSelection();
 
+    // Seleccion multiple proveniente del viewport: mueve el caret del
+    // arbol al objeto "primary" sin disparar onSelectionChanged (el
+    // dueno ya tiene el estado y pinta el con showObject/showMultiple).
+    void syncTreeSelection(const std::string& primary);
+
+    // Properties con varios objetos seleccionados: estado "-N objetos
+    // seleccionados-" y el resto de campos apagados.
+    void showMultiple(int count);
+
     // Se invoca con el nombre del nodo seleccionado ("" si no hay
     // seleccion). El dueno decide que hacer con la escena.
     void setOnSelectionChanged(std::function<void(const std::string&)> cb) {
@@ -70,6 +80,7 @@ private:
     void* tree_ = nullptr;
     void* root_ = nullptr;   // HTREEITEM de dimension01
     bool visible_ = false;
+    bool suppressNotify_ = false;  // syncTreeSelection mueve el caret a mano
     std::string selectedName_;   // objeto seleccionado ("" si no hay)
     std::function<void(const std::string&)> onSelectionChanged_;
     std::function<void(const std::string&)> onAssocEdit_;

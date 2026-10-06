@@ -73,6 +73,27 @@ inline Mat4 operator*(const Mat4& a, const Mat4& b) {
     return r;
 }
 
+// Transforma un punto (w=1) y divide por w (proyeccion perspectiva).
+// Devuelve false si el punto queda detras del plano (w<=0).
+inline bool transformPoint(const Mat4& m, const Vec3& p, Vec3& out) {
+    const float x = m.at(0, 0) * p.x + m.at(1, 0) * p.y + m.at(2, 0) * p.z + m.at(3, 0);
+    const float y = m.at(0, 1) * p.x + m.at(1, 1) * p.y + m.at(2, 1) * p.z + m.at(3, 1);
+    const float z = m.at(0, 2) * p.x + m.at(1, 2) * p.y + m.at(2, 2) * p.z + m.at(3, 2);
+    const float w = m.at(0, 3) * p.x + m.at(1, 3) * p.y + m.at(2, 3) * p.z + m.at(3, 3);
+    if (w <= 1e-6f) return false;
+    out = {x / w, y / w, z / w};
+    return true;
+}
+
+// Transforma una direccion (w=0): solo rotacion/escala, sin division.
+inline Vec3 transformDir(const Mat4& m, const Vec3& d) {
+    return {
+        m.at(0, 0) * d.x + m.at(1, 0) * d.y + m.at(2, 0) * d.z,
+        m.at(0, 1) * d.x + m.at(1, 1) * d.y + m.at(2, 1) * d.z,
+        m.at(0, 2) * d.x + m.at(1, 2) * d.y + m.at(2, 2) * d.z,
+    };
+}
+
 inline constexpr float kPi = 3.14159265358979323846f;
 
 inline float radians(float degrees) { return degrees * (kPi / 180.0f); }

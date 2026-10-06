@@ -299,7 +299,54 @@ void PlaceView::showNoSelection() {
     if (HWND btn = GetDlgItem(props, kIdAssocBtn)) EnableWindow(btn, FALSE);
 }
 
+void PlaceView::showMultiple(int count) {
+    HWND props = static_cast<HWND>(properties_);
+    if (!props) return;
+    selectedName_.clear();
+    char text[64]{};
+    snprintf(text, sizeof(text), "-%d objetos seleccionados-", count);
+    if (HWND status = GetDlgItem(props, kIdStatus)) SetWindowTextA(status, text);
+    for (int row = 0; row < 3; ++row) {
+        for (int axis = 0; axis < 3; ++axis) {
+            if (HWND field = GetDlgItem(props, 200 + row * 3 + axis)) {
+                SetWindowTextA(field, "-");
+            }
+        }
+    }
+    if (HWND assoc = GetDlgItem(props, kIdAssocValue)) SetWindowTextA(assoc, "-");
+    if (HWND btn = GetDlgItem(props, kIdAssocBtn)) EnableWindow(btn, FALSE);
+}
+
+void PlaceView::syncTreeSelection(const std::string& primary) {
+    if (!tree_) return;
+    if (primary.empty()) {
+        suppressNotify_ = true;
+        TreeView_Select(static_cast<HWND>(tree_), nullptr, TVGN_CARET);
+        suppressNotify_ = false;
+        return;
+    }
+    HWND tree = static_cast<HWND>(tree_);
+    HTREEITEM child = TreeView_GetChild(tree, static_cast<HTREEITEM>(root_));
+    while (child) {
+        char text[64]{};
+        TVITEMA tvi{};
+        tvi.hItem = child;
+        tvi.mask = TVIF_TEXT;
+        tvi.pszText = text;
+        tvi.cchTextMax = static_cast<int>(sizeof(text));
+        TreeView_GetItem(tree, &tvi);
+        if (primary == text) {
+            suppressNotify_ = true;
+            TreeView_Select(tree, child, TVGN_CARET);
+            suppressNotify_ = false;
+            return;
+        }
+        child = TreeView_GetNextSibling(tree, child);
+    }
+}
+
 void PlaceView::notifySelection() {
+    if (suppressNotify_) return;
     if (!onSelectionChanged_ || !tree_) return;
     HWND tree = static_cast<HWND>(tree_);
     HTREEITEM item = TreeView_GetSelection(tree);
