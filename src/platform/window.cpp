@@ -126,6 +126,18 @@ float Window::consumeWheel() const {
     return w;
 }
 
+std::optional<Vec2> Window::consumeLeftPressed() {
+    std::optional<Vec2> p = pendingPress_;
+    pendingPress_.reset();
+    return p;
+}
+
+std::optional<Vec2> Window::consumeLeftReleased() {
+    std::optional<Vec2> p = pendingRelease_;
+    pendingRelease_.reset();
+    return p;
+}
+
 long long __stdcall Window::wndProc(void* hwndPtr, unsigned int msg, unsigned long long wParam, long long lParam) {
     HWND hwnd = static_cast<HWND>(hwndPtr);
     Window* self = reinterpret_cast<Window*>(GetWindowLongPtrA(hwnd, GWLP_USERDATA));
@@ -155,6 +167,26 @@ long long __stdcall Window::wndProc(void* hwndPtr, unsigned int msg, unsigned lo
                              SWP_NOZORDER | SWP_NOACTIVATE);
                 return 0;
             }
+            case WM_LBUTTONDOWN: {
+                const int x = GET_X_LPARAM(lParam);
+                const int y = GET_Y_LPARAM(lParam);
+                self->lmbDown_ = true;
+                self->mousePos_ = {static_cast<float>(x), static_cast<float>(y)};
+                self->pendingPress_ = self->mousePos_;
+                SetCapture(hwnd);
+                return 0;
+            }
+            case WM_LBUTTONUP: {
+                const int x = GET_X_LPARAM(lParam);
+                const int y = GET_Y_LPARAM(lParam);
+                self->lmbDown_ = false;
+                self->mousePos_ = {static_cast<float>(x), static_cast<float>(y)};
+                self->pendingRelease_ = self->mousePos_;
+                // El capture del click derecho manda: no soltarlo al
+                // levantar el izquierdo (la cámara seguiría mirando).
+                if (!self->rmbDown_ && GetCapture() == hwnd) ReleaseCapture();
+                return 0;
+            }
             case WM_RBUTTONDOWN: {
                 self->rmbDown_ = true;
                 self->tracking_ = false;
@@ -164,12 +196,13 @@ long long __stdcall Window::wndProc(void* hwndPtr, unsigned int msg, unsigned lo
             case WM_RBUTTONUP: {
                 self->rmbDown_ = false;
                 self->tracking_ = false;
-                if (GetCapture() == hwnd) ReleaseCapture();
+                if (!self->lmbDown_ && GetCapture() == hwnd) ReleaseCapture();
                 return 0;
             }
             case WM_MOUSEMOVE: {
                 const int x = GET_X_LPARAM(lParam);
                 const int y = GET_Y_LPARAM(lParam);
+                self->mousePos_ = {static_cast<float>(x), static_cast<float>(y)};
                 if (self->rmbDown_) {
                     if (!self->tracking_) {
                         self->tracking_ = true;

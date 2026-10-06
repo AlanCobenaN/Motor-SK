@@ -10,6 +10,14 @@ namespace sk {
 class Camera {
 public:
     void update(float dt, const Window& window) {
+        // Arrastre de seleccion (boton izquierdo): la camara quieta y los
+        // eventos de mirar/rueda consumidos para que no se acumulen.
+        if (window.mouseLeftDown()) {
+            window.consumeMouseDelta();
+            window.consumeWheel();
+            return;
+        }
+
         const float dtScale = dt;
 
         // Mirar con el botón derecho.

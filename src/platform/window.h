@@ -1,12 +1,14 @@
 #pragma once
 
+#include <optional>
+
 #include "../math/math.h"
 
 namespace sk {
 
 // Ventana Win32 con estado de input para la cámara libre.
 // El teclado (WASD/shift) se consulta con GetAsyncKeyState; el ratón
-// (click derecho, rueda, deltas de movimiento) llega por mensajes.
+// (clicks, rueda, deltas de movimiento) llega por mensajes.
 class Window {
 public:
     Window() = default;
@@ -26,11 +28,20 @@ public:
     bool keyDown(int vk) const;
 
     bool mouseRightDown() const { return rmbDown_; }
+    bool mouseLeftDown() const { return lmbDown_; }
+
+    // Posición actual del ratón en coordenadas de cliente de la ventana.
+    Vec2 mousePos() const { return mousePos_; }
 
     // Delta acumulado desde la última consulta y rueda acumulada.
     // Son "consume": vacian el acumulador para el próximo frame.
     Vec2 consumeMouseDelta() const;
     float consumeWheel() const;
+
+    // Clicks del botón izquierdo: consumen el evento (una sola vez) con
+    // la posición de cliente donde ocurrieron.
+    std::optional<Vec2> consumeLeftPressed();
+    std::optional<Vec2> consumeLeftReleased();
 
     int framebufferWidth() const { return width_; }
     int framebufferHeight() const { return height_; }
@@ -52,11 +63,15 @@ private:
 
     bool shouldClose_ = false;
     bool rmbDown_ = false;
+    bool lmbDown_ = false;
     bool resized_ = false;
 
     bool tracking_ = false;
     mutable Vec2 pendingDelta_;
     mutable float pendingWheel_ = 0.0f;
+    mutable std::optional<Vec2> pendingPress_;
+    mutable std::optional<Vec2> pendingRelease_;
+    Vec2 mousePos_{};
     int lastX_ = 0;
     int lastY_ = 0;
 
