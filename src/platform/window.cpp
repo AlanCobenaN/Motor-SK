@@ -123,7 +123,9 @@ bool Window::textInputFocused() const {
     if (!focus) return false;
     char cls[32]{};
     GetClassNameA(focus, cls, static_cast<int>(sizeof(cls)));
-    return lstrcmpA(cls, "EDIT") == 0;
+    // La clase pre-registrada se llama "Edit" (la busqueda al crear la
+    // ventana acepta "EDIT", pero GetClassName devuelve el nombre real).
+    return lstrcmpiA(cls, "EDIT") == 0;
 }
 
 Vec2 Window::consumeMouseDelta() const {
@@ -185,6 +187,10 @@ long long __stdcall Window::wndProc(void* hwndPtr, unsigned int msg, unsigned lo
                 self->lmbDown_ = true;
                 self->mousePos_ = {static_cast<float>(x), static_cast<float>(y)};
                 self->pendingPress_ = self->mousePos_;
+                // El click en la vista quita el foco de un campo de texto
+                // (si no, la camara y las teclas de herramienta siguen
+                // bloqueadas por textInputFocused).
+                if (GetFocus() != hwnd) SetFocus(hwnd);
                 SetCapture(hwnd);
                 return 0;
             }
@@ -202,6 +208,9 @@ long long __stdcall Window::wndProc(void* hwndPtr, unsigned int msg, unsigned lo
             case WM_RBUTTONDOWN: {
                 self->rmbDown_ = true;
                 self->tracking_ = false;
+                // Igual que con el boton izquierdo: la camara (WASD) no
+                // debe quedar bloqueada tras haber escrito en Properties.
+                if (GetFocus() != hwnd) SetFocus(hwnd);
                 SetCapture(hwnd);
                 return 0;
             }
