@@ -44,6 +44,14 @@ Ejecutable `.exe` con:
        un selector modal de scripts, el CODE muestra el objeto asociado en su
        Properties, borrar/renombrar scripts remapea (y guarda) las
        asociaciones, y todo persiste con la escena
+- [x] Seleccion en el viewport de PLACE: click izquierdo selecciona el objeto
+       bajo el puntero (rayo inverso contra la caja de cada Part), Ctrl+click
+       anade o quita de la seleccion, click en vacio deselecciona todo y
+       arrastrar un rectangulo (marquee) selecciona varios objetos a la vez;
+       el Explorer marca el objeto activo, Properties pasa a
+       "-N objetos seleccionados-" con varios, y los objetos elegidos se
+       rodean de un contorno celeste (mas el rectangulo de arrastre mientras
+       dura el marquee)
 - [ ] Abrir un archivo/archivo de escena
 - [x] Cámara libre: WASD para moverse, click derecho para mirar, scroll para
        acercar/alejar
