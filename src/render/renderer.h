@@ -19,6 +19,13 @@ struct ScreenRect {
     float y1 = 0.0f;
 };
 
+// Vertice de lineas con color (rejilla, contornos y gizmo comparten
+// layout; el shader grid.vert lee pos + color por vertice).
+struct LineVertex {
+    float pos[3];
+    float color[3];
+};
+
 // Renderer Vulkan minimo: instancia, dispositivo, swapchain y dos
 // pipelines: lineas (rejilla de referencia del mundo) y triangulos (los
 // objetos "Part" de la escena).
@@ -36,9 +43,12 @@ public:
     // Devuelve false solo en error irrecuperable; los resize se resuelven
     // recreando la swapchain. objects: matriz modelo de cada Part.
     // outlines: matriz de cada objeto seleccionado (contorno celeste,
-    // ya con la escala 1.02 aplicada); marquee: rectangulo de arrastre.
+    // ya con la escala 1.02 aplicada); marquee: rectangulo de arrastre;
+    // gizmo: lineas del gizmo activo en coordenadas de mundo (se pintan
+    // sin depth, por encima de la escena).
     bool drawFrame(const Mat4& viewProj, const std::vector<Mat4>& objects,
-                   const std::vector<Mat4>& outlines, const ScreenRect& marquee);
+                   const std::vector<Mat4>& outlines, const ScreenRect& marquee,
+                   const std::vector<LineVertex>& gizmo);
 
     // WM_SIZE de la ventana: llvmpipe no devuelve OUT_OF_DATE al
     // redimensionar, asi que hay que marcar la swapchain a mano.
@@ -67,11 +77,13 @@ private:
     bool createDepthResources();
     bool createFramebuffers();
     bool createPipelineLayout();
-    bool createPipelineFor(VkPrimitiveTopology topology, VkPipeline* outPipeline);
+    bool createPipelineFor(VkPrimitiveTopology topology, bool depthTest,
+                           VkPipeline* outPipeline);
     bool createPipelines();
     bool createGridBuffers();
     bool createCubeBuffer();
     bool createOutlineBuffers();  // contorno celeste + cuadrado marquee
+    bool createGizmoBuffers();    // buffers por frame para las lineas
     bool createVertexBuffer(const void* vertices, size_t vertexBytes,
                             VkBuffer* outBuffer, VkDeviceMemory* outMemory);
     bool createCommandPool();
@@ -114,6 +126,7 @@ private:
     VkPipelineLayout pipelineLayout_ = VK_NULL_HANDLE;
     VkPipeline pipeline_ = VK_NULL_HANDLE;      // lineas (rejilla)
     VkPipeline meshPipeline_ = VK_NULL_HANDLE;  // triangulos (Part)
+    VkPipeline gizmoPipeline_ = VK_NULL_HANDLE; // lineas sin depth (gizmo)
 
     VkBuffer gridBuffer_ = VK_NULL_HANDLE;
     VkDeviceMemory gridMemory_ = VK_NULL_HANDLE;
@@ -140,6 +153,13 @@ private:
     std::vector<VkSemaphore> renderFinished_;
     std::vector<VkFence> inFlightFences_;
     int frameIndex_ = 0;
+
+    // Lineas del gizmo: un buffer por frame en vuelo (se reescribe tras
+    // esperar el fence del frame, sin barreras: el wait garantiza que el
+    // frame anterior ya leyo los datos).
+    static constexpr int kGizmoCapacity = 4096;  // vertices
+    VkBuffer gizmoBuffers_[kMaxFramesInFlight] = {};
+    VkDeviceMemory gizmoMemories_[kMaxFramesInFlight] = {};
 
     bool swapchainDirty_ = false;
     bool validationEnabled_ = false;

@@ -542,7 +542,11 @@ int main(int argc, char** argv) {
             marquee.y1 = std::fmax(dragStart.y, window.mousePos().y);
         }
 
-        if (!renderer.drawFrame(viewProj, models, outlines, marquee)) {
+        // Lineas del gizmo: de momento vacias (se rellenan en el paso de
+        // herramientas).
+        const std::vector<sk::LineVertex> gizmoLines;
+
+        if (!renderer.drawFrame(viewProj, models, outlines, marquee, gizmoLines)) {
             SK_ERROR("drawFrame fallo");
             return 1;
         }

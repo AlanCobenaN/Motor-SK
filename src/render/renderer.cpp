@@ -28,6 +28,9 @@ struct Vertex {
     float color[3];
 };
 
+// El gizmo reutiliza el mismo layout que el resto de lineas.
+using GizmoVertex = LineVertex;
+
 std::string executableDir() {
     char path[MAX_PATH]{};
     GetModuleFileNameA(nullptr, path, MAX_PATH);
@@ -71,6 +74,7 @@ bool Renderer::init(Window& window) {
     if (!createGridBuffers()) return false;
     if (!createCubeBuffer()) return false;
     if (!createOutlineBuffers()) return false;
+    if (!createGizmoBuffers()) return false;
     if (!createCommandPool()) return false;
     if (!createSyncObjects()) return false;
     SK_INFO("Renderer Vulkan listo");
@@ -90,8 +94,15 @@ void Renderer::shutdown() {
     if (outlineMemory_ != VK_NULL_HANDLE) vkFreeMemory(device_, outlineMemory_, nullptr);
     if (marqueeBuffer_ != VK_NULL_HANDLE) vkDestroyBuffer(device_, marqueeBuffer_, nullptr);
     if (marqueeMemory_ != VK_NULL_HANDLE) vkFreeMemory(device_, marqueeMemory_, nullptr);
+    for (int i = 0; i < kMaxFramesInFlight; ++i) {
+        if (gizmoBuffers_[i] != VK_NULL_HANDLE) vkDestroyBuffer(device_, gizmoBuffers_[i], nullptr);
+        if (gizmoMemories_[i] != VK_NULL_HANDLE) vkFreeMemory(device_, gizmoMemories_[i], nullptr);
+        gizmoBuffers_[i] = VK_NULL_HANDLE;
+        gizmoMemories_[i] = VK_NULL_HANDLE;
+    }
     if (pipeline_ != VK_NULL_HANDLE) vkDestroyPipeline(device_, pipeline_, nullptr);
     if (meshPipeline_ != VK_NULL_HANDLE) vkDestroyPipeline(device_, meshPipeline_, nullptr);
+    if (gizmoPipeline_ != VK_NULL_HANDLE) vkDestroyPipeline(device_, gizmoPipeline_, nullptr);
     if (pipelineLayout_ != VK_NULL_HANDLE) vkDestroyPipelineLayout(device_, pipelineLayout_, nullptr);
     if (renderPass_ != VK_NULL_HANDLE) vkDestroyRenderPass(device_, renderPass_, nullptr);
 
@@ -572,7 +583,8 @@ bool Renderer::createPipelineLayout() {
     return true;
 }
 
-bool Renderer::createPipelineFor(VkPrimitiveTopology topology, VkPipeline* outPipeline) {
+bool Renderer::createPipelineFor(VkPrimitiveTopology topology, bool depthTest,
+                                 VkPipeline* outPipeline) {
     VkShaderModule vertModule = VK_NULL_HANDLE;
     VkShaderModule fragModule = VK_NULL_HANDLE;
     if (!loadShaderModule("shaders/grid.spv", &vertModule)) return false;
@@ -627,8 +639,8 @@ bool Renderer::createPipelineFor(VkPrimitiveTopology topology, VkPipeline* outPi
 
     VkPipelineDepthStencilStateCreateInfo depthStencil{
         VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-    depthStencil.depthTestEnable = VK_TRUE;
-    depthStencil.depthWriteEnable = VK_TRUE;
+    depthStencil.depthTestEnable = depthTest ? VK_TRUE : VK_FALSE;
+    depthStencil.depthWriteEnable = depthTest ? VK_TRUE : VK_FALSE;
     depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
 
     VkPipelineColorBlendAttachmentState blendAttachment{};
@@ -680,8 +692,16 @@ bool Renderer::createPipelineFor(VkPrimitiveTopology topology, VkPipeline* outPi
 
 bool Renderer::createPipelines() {
     if (!createPipelineLayout()) return false;
-    if (!createPipelineFor(VK_PRIMITIVE_TOPOLOGY_LINE_LIST, &pipeline_)) return false;
-    if (!createPipelineFor(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, &meshPipeline_)) return false;
+    if (!createPipelineFor(VK_PRIMITIVE_TOPOLOGY_LINE_LIST, true, &pipeline_)) {
+        return false;
+    }
+    if (!createPipelineFor(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, true, &meshPipeline_)) {
+        return false;
+    }
+    // Gizmo: lineas siempre visibles por encima de la escena.
+    if (!createPipelineFor(VK_PRIMITIVE_TOPOLOGY_LINE_LIST, false, &gizmoPipeline_)) {
+        return false;
+    }
     return true;
 }
 
@@ -808,6 +828,18 @@ bool Renderer::createOutlineBuffers() {
                               &marqueeBuffer_, &marqueeMemory_);
 }
 
+bool Renderer::createGizmoBuffers() {
+    // Un buffer host-visible por frame en vuelo: en drawFrame se mapea,
+    // se copian las lineas del frame y se desmapea tras el wait del fence.
+    for (int i = 0; i < kMaxFramesInFlight; ++i) {
+        if (!createVertexBuffer(nullptr, sizeof(LineVertex) * kGizmoCapacity,
+                                &gizmoBuffers_[i], &gizmoMemories_[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool Renderer::createVertexBuffer(const void* vertices, size_t vertexBytes,
                                   VkBuffer* outBuffer, VkDeviceMemory* outMemory) {
     VkBufferCreateInfo bufferCi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -829,7 +861,9 @@ bool Renderer::createVertexBuffer(const void* vertices, size_t vertexBytes,
 
     void* data = nullptr;
     VK_CHECK(vkMapMemory(device_, *outMemory, 0, vertexBytes, 0, &data));
-    std::memcpy(data, vertices, vertexBytes);
+    if (vertices != nullptr) {
+        std::memcpy(data, vertices, vertexBytes);
+    }
     vkUnmapMemory(device_, *outMemory);
     return true;
 }
@@ -918,13 +952,28 @@ bool Renderer::recreateSwapchain() {
 
 bool Renderer::drawFrame(const Mat4& viewProj, const std::vector<Mat4>& objects,
                          const std::vector<Mat4>& outlines,
-                         const ScreenRect& marquee) {
+                         const ScreenRect& marquee,
+                         const std::vector<LineVertex>& gizmo) {
     if (swapchainDirty_ && !recreateSwapchain()) return false;
     if (swapchain_ == VK_NULL_HANDLE) return true; // ventana minimizada
 
     const int frame = frameIndex_;
 
     VK_CHECK(vkWaitForFences(device_, 1, &inFlightFences_[frame], VK_TRUE, UINT64_MAX));
+
+    // El fence garantiza que la ultima vez que este frame corrio ya leyo
+    // su buffer: se puede reescribir sin barreras ni transiciones.
+    if (!gizmo.empty() && gizmoBuffers_[frame] != VK_NULL_HANDLE) {
+        const uint32_t count = std::min<uint32_t>(
+            static_cast<uint32_t>(gizmo.size()),
+            static_cast<uint32_t>(kGizmoCapacity));
+        void* data = nullptr;
+        if (vkMapMemory(device_, gizmoMemories_[frame], 0,
+                        sizeof(LineVertex) * count, 0, &data) == VK_SUCCESS) {
+            std::memcpy(data, gizmo.data(), sizeof(LineVertex) * count);
+            vkUnmapMemory(device_, gizmoMemories_[frame]);
+        }
+    }
 
     uint32_t imageIndex = 0;
     const VkResult acquireResult = vkAcquireNextImageKHR(
@@ -1010,6 +1059,21 @@ bool Renderer::drawFrame(const Mat4& viewProj, const std::vector<Mat4>& objects,
                                0, sizeof(float) * 16, &mvp);
             vkCmdDraw(command, outlineVertexCount_, 1, 0, 0);
         }
+    }
+
+    // Gizmo (mover/escalar/rotar): lineas de mundo sin depth, siempre
+    // encima de la escena y del contorno de seleccion.
+    if (!gizmo.empty() && gizmoPipeline_ != VK_NULL_HANDLE) {
+        const uint32_t gizmoCount = std::min<uint32_t>(
+            static_cast<uint32_t>(gizmo.size()),
+            static_cast<uint32_t>(kGizmoCapacity));
+        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, gizmoPipeline_);
+        const VkBuffer gizmoBuffer = gizmoBuffers_[frame];
+        const VkDeviceSize gizmoOffset = 0;
+        vkCmdBindVertexBuffers(command, 0, 1, &gizmoBuffer, &gizmoOffset);
+        vkCmdPushConstants(command, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT,
+                           0, sizeof(float) * 16, &viewProj);
+        vkCmdDraw(command, gizmoCount, 1, 0, 0);
     }
 
     // Rectangulo de arrastre (marquee): coordenadas de pantalla a NDC
