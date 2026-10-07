@@ -4,6 +4,7 @@
 #include <commctrl.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -57,21 +58,27 @@ HTREEITEM addTreeRoot(HWND tree, const char* text) {
 }
 
 // Escribe un campo Transform (ids 200..208) con formato compacto.
-void setTransformField(HWND props, int id, float value) {
+// keep (opcional) guarda el texto escrito para poder restaurarlo si el
+// usuario escribe algo que no es un numero.
+void setTransformField(HWND props, int id, float value,
+                       std::string* keep = nullptr) {
     HWND field = GetDlgItem(props, id);
     if (!field) return;
     char buf[32]{};
     snprintf(buf, sizeof(buf), "%.3g", value);
+    if (keep) *keep = buf;
     SetWindowTextA(field, buf);
 }
 
 // Transform identico para raiz / sin seleccion: posicion 0, rotacion 0,
-// escala 1.
-void setTransformIdentity(HWND props) {
+// escala 1. keep apunta a los 9 textos guardados (nullptr para saltar).
+void setTransformIdentity(HWND props, std::string* keep) {
     for (int i = 0; i < 3; ++i) {
-        setTransformField(props, 200 + i, 0.0f);
-        setTransformField(props, 203 + i, 0.0f);
-        setTransformField(props, 206 + i, 1.0f);
+        setTransformField(props, 200 + i, 0.0f, keep ? &keep[i] : nullptr);
+        setTransformField(props, 203 + i, 0.0f,
+                          keep ? &keep[3 + i] : nullptr);
+        setTransformField(props, 206 + i, 1.0f,
+                          keep ? &keep[6 + i] : nullptr);
     }
 }
 
@@ -90,7 +97,7 @@ HWND makeEdit(HWND parent, HINSTANCE inst, int id, const char* text,
               int x, int y, int w, int h) {
     HWND hwnd = CreateWindowExA(0, "EDIT", text,
                                 WS_CHILD | WS_VISIBLE | WS_BORDER |
-                                ES_AUTOHSCROLL | ES_READONLY | WS_TABSTOP,
+                                ES_AUTOHSCROLL | WS_TABSTOP,
                                 x, y, w, h, parent,
                                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
                                 inst, nullptr);
@@ -158,8 +165,8 @@ bool PlaceView::create(void* parentHwnd) {
     // Raiz unica por defecto: la dimension/escena del lugar.
     root_ = addTreeRoot(tree, "dimension01");
 
-    // Properties: estado + bloque Transform (solo lectura hasta que haya
-    // objetos que sincronizar con ModelScript).
+    // Properties: estado + bloque Transform (editable: al perder el foco
+    // un campo el valor se aplica al objeto via onTransformEdited).
     HWND hprop = static_cast<HWND>(properties_);
     makeStatic(hprop, inst, 100, "Sin objeto seleccionado",
                12, kHeaderHeight + 8, kPropertiesWidth - 24, 20,
@@ -265,9 +272,12 @@ void PlaceView::showObject(const SceneObject& object) {
         SetWindowTextA(status, object.name.c_str());
     }
     for (int axis = 0; axis < 3; ++axis) {
-        setTransformField(props, 200 + axis, (&object.position.x)[axis]);
-        setTransformField(props, 203 + axis, (&object.rotation.x)[axis]);
-        setTransformField(props, 206 + axis, (&object.scale.x)[axis]);
+        setTransformField(props, 200 + axis, (&object.position.x)[axis],
+                          &fieldText_[axis]);
+        setTransformField(props, 203 + axis, (&object.rotation.x)[axis],
+                          &fieldText_[3 + axis]);
+        setTransformField(props, 206 + axis, (&object.scale.x)[axis],
+                          &fieldText_[6 + axis]);
     }
     if (HWND assoc = GetDlgItem(props, kIdAssocValue)) {
         SetWindowTextA(assoc, object.script.empty() ? "-" : object.script.c_str());
@@ -282,7 +292,7 @@ void PlaceView::showRoot() {
     if (HWND status = GetDlgItem(props, kIdStatus)) {
         SetWindowTextA(status, "dimension01");
     }
-    setTransformIdentity(props);
+    setTransformIdentity(props, fieldText_);
     if (HWND assoc = GetDlgItem(props, kIdAssocValue)) SetWindowTextA(assoc, "-");
     if (HWND btn = GetDlgItem(props, kIdAssocBtn)) EnableWindow(btn, FALSE);
 }
@@ -294,7 +304,7 @@ void PlaceView::showNoSelection() {
     if (HWND status = GetDlgItem(props, kIdStatus)) {
         SetWindowTextA(status, "Sin objeto seleccionado");
     }
-    setTransformIdentity(props);
+    setTransformIdentity(props, fieldText_);
     if (HWND assoc = GetDlgItem(props, kIdAssocValue)) SetWindowTextA(assoc, "-");
     if (HWND btn = GetDlgItem(props, kIdAssocBtn)) EnableWindow(btn, FALSE);
 }
@@ -311,6 +321,7 @@ void PlaceView::showMultiple(int count) {
             if (HWND field = GetDlgItem(props, 200 + row * 3 + axis)) {
                 SetWindowTextA(field, "-");
             }
+            fieldText_[row * 3 + axis] = "-";
         }
     }
     if (HWND assoc = GetDlgItem(props, kIdAssocValue)) SetWindowTextA(assoc, "-");
@@ -416,9 +427,37 @@ long long __stdcall PlaceView::wndProc(void* hwndPtr, unsigned int msg,
         }
         case WM_COMMAND: {
             if (!self) break;
-            if (LOWORD(wParam) == kIdAssocBtn && HIWORD(wParam) == BN_CLICKED) {
+            const int id = LOWORD(wParam);
+            const int code = HIWORD(wParam);
+            if (id == kIdAssocBtn && code == BN_CLICKED) {
                 if (!self->selectedName_.empty() && self->onAssocEdit_) {
                     self->onAssocEdit_(self->selectedName_);
+                }
+                return 0;
+            }
+            // Campo Transform editado: al perder el foco se aplica una
+            // sola vez (no en cada tecla) y el dueno guarda la escena.
+            if (id >= 200 && id <= 208 && code == EN_KILLFOCUS &&
+                self->onTransformEdited_) {
+                HWND field =
+                    GetDlgItem(static_cast<HWND>(self->properties_), id);
+                char text[64]{};
+                if (field) {
+                    GetWindowTextA(field, text,
+                                   static_cast<int>(sizeof(text)));
+                }
+                // Teclado español: la coma decimal tambien vale.
+                for (char& c : text) {
+                    if (c == ',') c = '.';
+                }
+                char* end = nullptr;
+                const float value = strtof(text, &end);
+                const bool valid = end != text;
+                if (valid && !self->selectedName_.empty()) {
+                    self->onTransformEdited_(self->selectedName_, id, value);
+                } else if (field) {
+                    // No es un numero o no hay objeto: texto anterior.
+                    SetWindowTextA(field, self->fieldText_[id - 200].c_str());
                 }
                 return 0;
             }

@@ -248,6 +248,27 @@ int main(int argc, char** argv) {
                 rel.empty() ? "(ninguno)" : rel.c_str());
     });
 
+    // Properties Transform editable: al perder el foco un campo se
+    // aplica al objeto, se guarda la escena y se reescriben los campos
+    // con el formato normalizado.
+    place.setOnTransformEdited([&](const std::string& name, int id,
+                                   float value) {
+        sk::SceneObject* object = scene.findByName(name);
+        if (!object) return;
+        const int row = (id - 200) / 3;
+        const int axis = (id - 200) % 3;
+        static const char* kRows[] = {"posicion", "rotacion", "escala"};
+        static const char* kAxes[] = {"x", "y", "z"};
+        sk::Vec3* target = &object->position;
+        if (row == 1) target = &object->rotation;
+        else if (row == 2) target = &object->scale;
+        (&target->x)[axis] = value;
+        saveScene();
+        place.showObject(*object);
+        SK_INFO("Properties %s: %s.%s = %.3g", name.c_str(), kRows[row],
+                kAxes[axis], value);
+    });
+
     // CODE: el panel Properties consulta el objeto asociado a un script.
     code.setOnQueryAssoc([&](const std::string& rel) -> std::string {
         for (const sk::SceneObject& object : scene.objects()) {

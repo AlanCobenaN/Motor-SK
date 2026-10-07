@@ -68,6 +68,13 @@ public:
         onAssocEdit_ = std::move(cb);
     }
 
+    // Campo Transform (ids 200..208) editado: el usuario tecleo un valor
+    // y el campo perdio el foco. El dueno lo aplica al objeto y guarda.
+    void setOnTransformEdited(
+        std::function<void(const std::string&, int id, float value)> cb) {
+        onTransformEdited_ = std::move(cb);
+    }
+
 private:
     static long long __stdcall wndProc(void* hwnd, unsigned int msg,
                                        unsigned long long wParam, long long lParam);
@@ -82,8 +89,12 @@ private:
     bool visible_ = false;
     bool suppressNotify_ = false;  // syncTreeSelection mueve el caret a mano
     std::string selectedName_;   // objeto seleccionado ("" si no hay)
+    // Ultimo texto mostrado en cada campo Transform (para restaurarlo si
+    // la edicion no es un numero o no hay objeto seleccionado).
+    std::string fieldText_[9];
     std::function<void(const std::string&)> onSelectionChanged_;
     std::function<void(const std::string&)> onAssocEdit_;
+    std::function<void(const std::string&, int, float)> onTransformEdited_;
 };
 
 } // namespace sk
