@@ -19,6 +19,17 @@ namespace {
 
 const char* kFileName = "proyecto.sk";
 
+// Escena por defecto de un proyecto nuevo: la pieza base "basepart".
+// El cubo de referencia del renderer mide 1x1x1 unidades, asi que
+// "escala" son las medidas exactas del objeto y "posicion" la levanta
+// media altura sobre la rejilla.
+constexpr const char* kDefaultScene =
+    "version: 1\n"
+    "objeto: basepart\n"
+    "posicion: 0 0.5 0\n"
+    "rotacion: 0 0 0\n"
+    "escala: 1 1 1\n";
+
 std::string trim(const std::string& s) {
     const char* ws = " \t\r\n";
     const auto begin = s.find_first_not_of(ws);
@@ -130,6 +141,7 @@ bool create(const std::string& name, std::string& outFolder) {
     {
         std::ofstream file(folder / "escenas" / "inicio.scene");
         if (!file) return false;
+        file << kDefaultScene;
     }
 
     outFolder = folder.string();
