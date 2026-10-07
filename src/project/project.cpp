@@ -21,14 +21,14 @@ const char* kFileName = "proyecto.sk";
 
 // Escena por defecto de un proyecto nuevo: la pieza base "basepart".
 // El cubo de referencia del renderer mide 1x1x1 unidades, asi que
-// "escala" son las medidas exactas del objeto y "posicion" la levanta
-// media altura sobre la rejilla.
+// "escala" son las medidas exactas del objeto (una losa de 20x1 en el
+// suelo) y "posicion" -0.5 en Y deja su cara superior a ras de rejilla.
 constexpr const char* kDefaultScene =
     "version: 1\n"
     "objeto: basepart\n"
-    "posicion: 0 0.5 0\n"
+    "posicion: 0 -0.5 0\n"
     "rotacion: 0 0 0\n"
-    "escala: 1 1 1\n";
+    "escala: 20 1 20\n";
 
 std::string trim(const std::string& s) {
     const char* ws = " \t\r\n";
