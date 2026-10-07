@@ -14,8 +14,9 @@ const char* kTabsClass = "MotorSKWorkspaceTabs";
 
 const char* kTabNames[] = {"PLACE", "CODE", "GUI"};
 
-// Fila de atajos: herramientas del viewport y el boton Part. Medidas fijas
-// para que las pruebas puedan localizarlos por texto/posicion.
+// Fila de atajos: herramientas del viewport como tarjetitas (icono
+// arriba, nombre abajo) y el boton Part. Medidas fijas para que las
+// pruebas puedan localizarlos por texto/posicion.
 struct ToolButton {
     int id;
     const char* text;
@@ -23,21 +24,23 @@ struct ToolButton {
     int width;
 };
 const ToolButton kToolButtons[] = {
-    {110, "Seleccionar", 10, 110},
-    {111, "Mover", 126, 76},
-    {112, "Escalar", 208, 86},
-    {113, "Rotar", 300, 76},
+    {110, "Seleccionar", 10, 76},
+    {111, "Mover", 92, 76},
+    {112, "Escalar", 174, 76},
+    {113, "Rotar", 256, 76},
 };
-constexpr int kPartX = 382;
+constexpr int kPartX = 342;
 constexpr int kPartWidth = 74;
-constexpr int kRowY = 5;
-constexpr int kRowHeight = 26;
+constexpr int kRowY = 3;
+constexpr int kRowHeight = 34;
+constexpr int kPartY = 7;
+constexpr int kPartHeight = 26;
 
-// Icono GDI de cada herramienta, en un cuadro de 14x14 centrado en la
-// fila; lineas simples en color texto sobre el fondo (oscuro o acento).
+// Icono GDI de cada herramienta, centrado en la mitad superior de la
+// tarjeta; lineas simples en color texto sobre el fondo (oscuro o acento).
 void paintToolIcon(HDC hdc, const RECT& rc, int tool) {
-    const int cx = rc.left + 14;
-    const int cy = rc.top + (rc.bottom - rc.top) / 2;
+    const int cx = (rc.left + rc.right) / 2;
+    const int cy = rc.top + 12;
     HPEN pen = CreatePen(PS_SOLID, 1, theme::text());
     HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, pen));
     auto line = [&](int x0, int y0, int x1, int y1) {
@@ -109,8 +112,9 @@ void paintTool(const DRAWITEMSTRUCT& dis, bool active) {
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, theme::text());
     RECT textRc = rc;
-    textRc.left += 26;
-    DrawTextA(hdc, label, -1, &textRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    textRc.top += 18;
+    DrawTextA(hdc, label, -1, &textRc,
+              DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
     SelectObject(hdc, oldFont);
 }
 
@@ -223,7 +227,7 @@ bool WorkspaceTabs::create(void* parentHwnd) {
     }
     partButton_ = CreateWindowExA(0, "BUTTON", "Part",
                                   WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
-                                  kPartX, kRowY, kPartWidth, kRowHeight,
+                                  kPartX, kPartY, kPartWidth, kPartHeight,
                                   static_cast<HWND>(hwnd_),
                                   reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdPart)),
                                   inst, nullptr);
@@ -298,8 +302,8 @@ void WorkspaceTabs::resize(int width, int height) {
         }
     }
     if (partButton_) {
-        MoveWindow(static_cast<HWND>(partButton_), kPartX, kRowY,
-                   kPartWidth, kRowHeight, TRUE);
+        MoveWindow(static_cast<HWND>(partButton_), kPartX, kPartY,
+                   kPartWidth, kPartHeight, TRUE);
     }
     for (int i = 0; i < kTabCount; ++i) {
         if (buttons_[i]) {

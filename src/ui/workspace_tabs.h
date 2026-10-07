@@ -16,8 +16,10 @@ namespace sk {
 // ventana hija tiene wndProc propia), no a la ventana principal.
 class WorkspaceTabs {
 public:
-    static constexpr int kShortcutHeight = 36;
-    static constexpr int kNavbarHeight = 36;
+    // Fila de atajos (arriba): las herramientas son tarjetitas cuadradas
+    // con el icono arriba y el nombre abajo; la navbar ocupa el resto.
+    static constexpr int kShortcutHeight = 40;
+    static constexpr int kNavbarHeight = 32;
     // Alto total de la banda: los paneles PLACE/CODE empiezan aqui.
     static constexpr int kTopBandHeight = kShortcutHeight + kNavbarHeight;
 
