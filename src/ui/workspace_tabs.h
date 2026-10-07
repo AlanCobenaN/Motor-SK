@@ -6,8 +6,8 @@ namespace sk {
 
 // Barra superior de la vista 3D, en dos filas dentro de la misma ventana
 // hija:
-//  - fila de atajos (arriba): herramientas del viewport (Seleccionar /
-//    Mover / Escalar / Rotar, atajos 1-4) y el boton "Part", que anade
+//  - fila de atajos (arriba): herramientas del viewport (Select /
+//    Move / Scale / Rotate, atajos 1-4) y el boton "Part", que anade
 //    un objeto 3D a la escena.
 //  - navbar (abajo): las tres divisiones del workspace (PLACE / CODE /
 //    GUI) como pestanas compactas.
@@ -16,10 +16,10 @@ namespace sk {
 // ventana hija tiene wndProc propia), no a la ventana principal.
 class WorkspaceTabs {
 public:
-    // Fila de atajos (arriba): las herramientas son tarjetas mas altas
-    // que anchas con el icono arriba y el nombre abajo; la navbar ocupa
-    // el resto.
-    static constexpr int kShortcutHeight = 74;
+    // Fila de atajos (arriba): tarjetas compactas de 56x52 con el icono
+    // arriba y el nombre abajo; la navbar ocupa el resto (banda total
+    // de 86px).
+    static constexpr int kShortcutHeight = 54;
     static constexpr int kNavbarHeight = 32;
     // Alto total de la banda: los paneles PLACE/CODE empiezan aqui.
     static constexpr int kTopBandHeight = kShortcutHeight + kNavbarHeight;
@@ -39,8 +39,8 @@ public:
     // Atajo "Part" de la barra superior: anade un objeto 3D a la escena.
     void setOnAddPart(std::function<void()> cb) { onAddPart_ = std::move(cb); }
 
-    // Herramienta activa del viewport: 0 = Seleccionar, 1 = Mover,
-    // 2 = Escalar, 3 = Rotar (teclas 1-4, botones de la fila de atajos).
+    // Herramienta activa del viewport: 0 = Select, 1 = Move,
+    // 2 = Scale, 3 = Rotate (teclas 1-4, botones de la fila de atajos).
     int tool() const { return tool_; }
     void setTool(int tool);
 
