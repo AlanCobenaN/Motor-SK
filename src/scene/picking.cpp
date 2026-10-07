@@ -1,5 +1,6 @@
 #include "picking.h"
 
+#include <algorithm>
 #include <cfloat>
 #include <cmath>
 
@@ -36,10 +37,14 @@ Mat4 inverseModel(const SceneObject& object) {
 }
 
 // Rayo contra caja unitaria [-0.5, 0.5]^3 (slab test). Devuelve el
-// parametro t>=0 del primer impacto o false.
-bool rayBox(const Vec3& origin, const Vec3& dir, float& tOut) {
+// parametro t>=0 del primer impacto y la normal de la cara golpeada en
+// espacio local (unitaria, hacia fuera de la caja y contra el rayo).
+bool rayBox(const Vec3& origin, const Vec3& dir, float& tOut,
+            Vec3& normalOut) {
     float tmin = -FLT_MAX;
     float tmax = FLT_MAX;
+    int faceAxis = -1;      // eje de la cara que fija la entrada
+    float faceSign = 0.0f;  // su signo (+1/-1) en ese eje
     for (int axis = 0; axis < 3; ++axis) {
         const float o = (&origin.x)[axis];
         const float d = (&dir.x)[axis];
@@ -54,13 +59,42 @@ bool rayBox(const Vec3& origin, const Vec3& dir, float& tOut) {
             t1 = t2;
             t2 = tmp;
         }
-        if (t1 > tmin) tmin = t1;
+        if (t1 > tmin) {
+            tmin = t1;
+            faceAxis = axis;
+            // Entrada por -0.5 con d>0 (normal -eje) o por +0.5 con d<0.
+            faceSign = d > 0.0f ? -1.0f : 1.0f;
+        }
         if (t2 < tmax) tmax = t2;
         if (tmin > tmax) return false;
     }
     if (tmax <= 0.0f) return false; // detras de la camara
     tOut = tmin > 0.0f ? tmin : 0.0f; // origen dentro de la caja
+    normalOut = {0.0f, 0.0f, 0.0f};
+    if (faceAxis >= 0) {
+        (&normalOut.x)[faceAxis] = faceSign;
+    } else {
+        normalOut = normalize(dir) * -1.0f; // degenerado (rayo paralelo)
+    }
     return true;
+}
+
+// Normal en mundo de una cara local de un objeto: R * (n/escala), sin
+// mas. Como cada cara del cubo es paralela a un eje local, dividir por
+// la escala (que luego se normaliza) no sesga la direccion; solo hace
+// falta para que la rotacion pura la mantenga unitaria.
+Vec3 faceNormalWorld(const SceneObject& object, const Vec3& localNormal) {
+    constexpr float kMinScale = 1e-6f;
+    const auto guard = [](float v) {
+        const float a = std::fabs(v);
+        return a < kMinScale ? kMinScale : a;
+    };
+    const Vec3 scaled{localNormal.x / guard(object.scale.x),
+                      localNormal.y / guard(object.scale.y),
+                      localNormal.z / guard(object.scale.z)};
+    const Mat4 rot = rotateX(object.rotation.x) * rotateY(object.rotation.y) *
+                     rotateZ(object.rotation.z);
+    return normalize(transformDir(rot, scaled));
 }
 
 // NDC de Vulkan a pixel de cliente: x,y en [-1,1] con y hacia abajo.
@@ -106,35 +140,48 @@ std::string pickObjectExcept(const Scene& scene, const Ray& ray,
 bool pickObjectHit(const Scene& scene, const Ray& ray,
                    const std::vector<std::string>& ignore, std::string& nameOut,
                    Vec3& pointOut) {
+    Vec3 normal;
+    return pickObjectFace(scene, ray, ignore, nameOut, pointOut, normal);
+}
+
+bool pickObjectFace(const Scene& scene, const Ray& ray,
+                    const std::vector<std::string>& ignore, std::string& nameOut,
+                    Vec3& pointOut, Vec3& normalOut) {
     // t es del espacio local de cada objeto (depende de su escala), asi
     // que se compara la distancia real en mundo al punto de impacto.
     float bestT = FLT_MAX;
     bool found = false;
     for (const SceneObject& object : scene.objects()) {
-        bool skipped = false;
-        for (const std::string& name : ignore) {
-            if (name == object.name) {
-                skipped = true;
-                break;
-            }
+        if (std::find(ignore.begin(), ignore.end(), object.name) !=
+            ignore.end()) {
+            continue;
         }
-        if (skipped) continue;
-        const Mat4 inv = inverseModel(object);
-        const Vec3 localOrigin = affine(inv, ray.origin);
-        const Vec3 localDir = transformDir(inv, ray.dir);
-        float t = 0.0f;
-        if (!rayBox(localOrigin, localDir, t)) continue;
-        const Mat4 model = object.modelMatrix();
-        const Vec3 hit = affine(model, localOrigin + localDir * t);
-        const float worldT = length(hit - ray.origin);
+        Vec3 point;
+        Vec3 normal;
+        if (!rayObjectFace(object, ray, point, normal)) continue;
+        const float worldT = length(point - ray.origin);
         if (worldT < bestT) {
             bestT = worldT;
             nameOut = object.name;
-            pointOut = hit;
+            pointOut = point;
+            normalOut = normal;
             found = true;
         }
     }
     return found;
+}
+
+bool rayObjectFace(const SceneObject& object, const Ray& ray, Vec3& pointOut,
+                   Vec3& normalOut) {
+    const Mat4 inv = inverseModel(object);
+    const Vec3 localOrigin = affine(inv, ray.origin);
+    const Vec3 localDir = transformDir(inv, ray.dir);
+    float t = 0.0f;
+    Vec3 localNormal;
+    if (!rayBox(localOrigin, localDir, t, localNormal)) return false;
+    pointOut = affine(object.modelMatrix(), localOrigin + localDir * t);
+    normalOut = faceNormalWorld(object, localNormal);
+    return true;
 }
 
 std::vector<std::string> selectInRect(const Scene& scene, const Mat4& viewProj,

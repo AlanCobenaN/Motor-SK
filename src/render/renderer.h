@@ -6,6 +6,7 @@
 
 #include "../math/math.h"
 #include "../platform/window.h"
+#include "meshes.h"
 
 namespace sk {
 
@@ -42,11 +43,14 @@ public:
 
     // Devuelve false solo en error irrecuperable; los resize se resuelven
     // recreando la swapchain. objects: matriz modelo de cada Part.
+    // shapes: la forma geometrica de cada Part (indice en kShapeMeshes,
+    // el mismo orden que objects; si falta, se toma el cubo).
     // outlines: matriz de cada objeto seleccionado (contorno celeste,
     // ya con la escala 1.02 aplicada); marquee: rectangulo de arrastre;
     // gizmo: lineas del gizmo activo en coordenadas de mundo (se pintan
     // sin depth, por encima de la escena).
     bool drawFrame(const Mat4& viewProj, const std::vector<Mat4>& objects,
+                   const std::vector<int>& shapes,
                    const std::vector<Mat4>& outlines, const ScreenRect& marquee,
                    const std::vector<LineVertex>& gizmo);
 
@@ -81,7 +85,8 @@ private:
                            VkPipeline* outPipeline);
     bool createPipelines();
     bool createGridBuffers();
-    bool createCubeBuffer();
+    bool createGridBuffers();
+    bool createShapeBuffers();     // una malla por forma (kShapeMeshes)
     bool createOutlineBuffers();  // contorno celeste + cuadrado marquee
     bool createGizmoBuffers();    // buffers por frame para las lineas
     bool createVertexBuffer(const void* vertices, size_t vertexBytes,
@@ -132,9 +137,13 @@ private:
     VkDeviceMemory gridMemory_ = VK_NULL_HANDLE;
     uint32_t gridVertexCount_ = 0;
 
-    VkBuffer cubeBuffer_ = VK_NULL_HANDLE;
-    VkDeviceMemory cubeMemory_ = VK_NULL_HANDLE;
-    uint32_t cubeVertexCount_ = 0;
+    // Una malla por forma geometrica (la 0 es el cubo de toda la vida).
+    VkBuffer shapeBuffers_[kShapeMeshes] = {};
+    VkDeviceMemory shapeMemories_[kShapeMeshes] = {};
+    uint32_t shapeVertexCounts_[kShapeMeshes] = {};
+
+    static_assert(kShapeMeshes == static_cast<int>(Shape::Count),
+                  "kShapeMeshes debe coincidir con Shape::Count");
 
     // Lineas de seleccion: cubo alambre (contorno de objeto) y cuadrado
     // en NDC para el rectangulo de arrastre.

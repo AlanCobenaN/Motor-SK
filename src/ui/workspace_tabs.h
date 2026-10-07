@@ -36,8 +36,10 @@ public:
     // Se llama cada vez que cambia la division activa.
     void setOnTabChanged(std::function<void(int)> cb) { onTabChanged_ = std::move(cb); }
 
-    // Atajo "Part" de la barra superior: anade un objeto 3D a la escena.
-    void setOnAddPart(std::function<void()> cb) { onAddPart_ = std::move(cb); }
+    // Atajo "Part": anade un objeto 3D a la escena con una forma
+    // determinada (0 = cubo). El boton Part llama a cb(0), el menu de
+    // formas llama con el indice de la forma elegida.
+    void setOnAddPart(std::function<void(int)> cb) { onAddPart_ = std::move(cb); }
 
     // Herramienta activa del viewport: 0 = Select, 1 = Move,
     // 2 = Scale, 3 = Rotate (teclas 1-4, botones de la fila de atajos).
@@ -70,7 +72,7 @@ private:
     int tool_ = 0;
     bool visible_ = false;
     std::function<void(int)> onTabChanged_;
-    std::function<void()> onAddPart_;
+    std::function<void(int)> onAddPart_;
     std::function<void(int)> onToolChanged_;
 };
 

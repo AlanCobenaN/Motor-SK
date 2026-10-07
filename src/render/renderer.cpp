@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "../core/log.h"
+#include "meshes.h"
 
 namespace sk {
 
@@ -23,13 +24,15 @@ namespace {
         }                                             \
     } while (0)
 
-struct Vertex {
-    float pos[3];
-    float color[3];
-};
+using Vertex = MeshVertex;
 
 // El gizmo reutiliza el mismo layout que el resto de lineas.
 using GizmoVertex = LineVertex;
+
+// Un buffer por forma geometrica: si algun dia se anade una forma sin
+// malla, el build falla aqui en lugar de leer basura en el draw.
+static_assert(kShapeMeshes == static_cast<int>(Shape::Count),
+              "kShapeMeshes debe coincidir con Shape::Count");
 
 std::string executableDir() {
     char path[MAX_PATH]{};
@@ -72,7 +75,7 @@ bool Renderer::init(Window& window) {
     if (!createFramebuffers()) return false;
     if (!createPipelines()) return false;
     if (!createGridBuffers()) return false;
-    if (!createCubeBuffer()) return false;
+    if (!createShapeBuffers()) return false;
     if (!createOutlineBuffers()) return false;
     if (!createGizmoBuffers()) return false;
     if (!createCommandPool()) return false;
@@ -88,8 +91,16 @@ void Renderer::shutdown() {
 
     if (gridBuffer_ != VK_NULL_HANDLE) vkDestroyBuffer(device_, gridBuffer_, nullptr);
     if (gridMemory_ != VK_NULL_HANDLE) vkFreeMemory(device_, gridMemory_, nullptr);
-    if (cubeBuffer_ != VK_NULL_HANDLE) vkDestroyBuffer(device_, cubeBuffer_, nullptr);
-    if (cubeMemory_ != VK_NULL_HANDLE) vkFreeMemory(device_, cubeMemory_, nullptr);
+    for (int i = 0; i < kShapeMeshes; ++i) {
+        if (shapeBuffers_[i] != VK_NULL_HANDLE) {
+            vkDestroyBuffer(device_, shapeBuffers_[i], nullptr);
+        }
+        if (shapeMemories_[i] != VK_NULL_HANDLE) {
+            vkFreeMemory(device_, shapeMemories_[i], nullptr);
+        }
+        shapeBuffers_[i] = VK_NULL_HANDLE;
+        shapeMemories_[i] = VK_NULL_HANDLE;
+    }
     if (outlineBuffer_ != VK_NULL_HANDLE) vkDestroyBuffer(device_, outlineBuffer_, nullptr);
     if (outlineMemory_ != VK_NULL_HANDLE) vkFreeMemory(device_, outlineMemory_, nullptr);
     if (marqueeBuffer_ != VK_NULL_HANDLE) vkDestroyBuffer(device_, marqueeBuffer_, nullptr);
@@ -739,42 +750,27 @@ bool Renderer::createGridBuffers() {
                               &gridBuffer_, &gridMemory_);
 }
 
-bool Renderer::createCubeBuffer() {
-    // Cubo unitario centrado en el origen; cada cara con un gris distinto
-    // para que se lea el volumen. 36 vertices (2 triangulos por cara).
-    constexpr float p = 0.5f;
-    const float shades[6] = {0.62f, 0.55f, 0.85f, 0.35f, 0.70f, 0.45f};
-
-    // Cuatro esquinas por cara, recorriendo el contorno (la diagonal del
-    // split es v0-v2). Cull desactivado, asi que el sentido no importa.
-    const float faces[6][4][3] = {
-        {{p, -p, -p}, {p, p, -p}, {p, p, p}, {p, -p, p}},       // +X
-        {{-p, -p, p}, {-p, p, p}, {-p, p, -p}, {-p, -p, -p}},   // -X
-        {{-p, p, -p}, {-p, p, p}, {p, p, p}, {p, p, -p}},       // +Y
-        {{-p, -p, p}, {-p, -p, -p}, {p, -p, -p}, {p, -p, p}},   // -Y
-        {{-p, -p, p}, {p, -p, p}, {p, p, p}, {-p, p, p}},       // +Z
-        {{p, -p, -p}, {-p, -p, -p}, {-p, p, -p}, {p, p, -p}},   // -Z
-    };
-
-    std::vector<Vertex> vertices;
-    vertices.reserve(36);
-    for (int face = 0; face < 6; ++face) {
-        const float s = shades[face];
-        const auto push = [&](int corner) {
-            const float* v = faces[face][corner];
-            vertices.push_back({{v[0], v[1], v[2]}, {s, s, s}});
-        };
-        push(0);
-        push(1);
-        push(2);
-        push(0);
-        push(2);
-        push(3);
+bool Renderer::createShapeBuffers() {
+    // Una malla low-poly por forma (cubo, rombo, esfera, cilindro,
+    // cuna y cuna de esquina), centrada y contenida en la caja
+    // unitaria: la escala la aplica la matriz modelo de cada objeto.
+    std::vector<MeshVertex> vertices;
+    for (int shape = 0; shape < kShapeMeshes; ++shape) {
+        vertices.clear();
+        buildShapeMesh(static_cast<Shape>(shape), vertices);
+        if (vertices.empty()) {
+            SK_ERROR("malla vacia para la forma %d", shape);
+            return false;
+        }
+        shapeVertexCounts_[shape] = static_cast<uint32_t>(vertices.size());
+        if (!createVertexBuffer(vertices.data(),
+                                sizeof(MeshVertex) * vertices.size(),
+                                &shapeBuffers_[shape],
+                                &shapeMemories_[shape])) {
+            return false;
+        }
     }
-
-    cubeVertexCount_ = static_cast<uint32_t>(vertices.size());
-    return createVertexBuffer(vertices.data(), sizeof(Vertex) * vertices.size(),
-                              &cubeBuffer_, &cubeMemory_);
+    return true;
 }
 
 bool Renderer::createOutlineBuffers() {
@@ -951,6 +947,7 @@ bool Renderer::recreateSwapchain() {
 }
 
 bool Renderer::drawFrame(const Mat4& viewProj, const std::vector<Mat4>& objects,
+                         const std::vector<int>& shapes,
                          const std::vector<Mat4>& outlines,
                          const ScreenRect& marquee,
                          const std::vector<LineVertex>& gizmo) {
@@ -1031,18 +1028,31 @@ bool Renderer::drawFrame(const Mat4& viewProj, const std::vector<Mat4>& objects,
 
     // Objetos "Part": mismo shader y push constant, pero la matriz ya
     // viene multiplicada (viewProj * model) y el pipeline es de
-    // triangulos.
+    // triangulos. Se recorre por forma para bindear cada malla una
+    // sola vez (seis formas como mucho); un objeto con una forma
+    // desconocida o una lista shapes mas corta pinta como cubo.
     if (!objects.empty() && meshPipeline_ != VK_NULL_HANDLE) {
         vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, meshPipeline_);
-        const VkBuffer meshBuffer = cubeBuffer_;
         const VkDeviceSize meshOffset = 0;
-        vkCmdBindVertexBuffers(command, 0, 1, &meshBuffer, &meshOffset);
 
-        for (const Mat4& model : objects) {
-            const Mat4 mvp = viewProj * model;
-            vkCmdPushConstants(command, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT,
-                               0, sizeof(float) * 16, &mvp);
-            vkCmdDraw(command, cubeVertexCount_, 1, 0, 0);
+        for (int shape = 0; shape < kShapeMeshes; ++shape) {
+            bool bound = false;
+            for (size_t i = 0; i < objects.size(); ++i) {
+                int objShape = (i < shapes.size()) ? shapes[i] : 0; if (objShape < 0 || objShape >= kShapeMeshes) objShape = 0; if (objShape != shape) continue;
+                if (objShape < 0 || objShape >= kShapeMeshes) objShape = 0;
+        if (id < 0 || id >= kShapeMeshes) objShape = 0;
+                if (objShape < 0 || objShape >= kShapeMeshes) objShape = 0;
+                if (objShape != shape) continue;
+                if (!bound) {
+                    vkCmdBindVertexBuffers(command, 0, 1, &shapeBuffers_[shape],
+                                           &meshOffset);
+                    bound = true;
+                }
+                const Mat4 mvp = viewProj * objects[i];
+                vkCmdPushConstants(command, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT,
+                                   0, sizeof(float) * 16, &mvp);
+                vkCmdDraw(command, shapeVertexCounts_[shape], 1, 0, 0);
+            }
         }
     }
 

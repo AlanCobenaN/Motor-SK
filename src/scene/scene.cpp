@@ -13,7 +13,7 @@ Mat4 SceneObject::modelMatrix() const {
            rotateZ(rotation.z) * sk::scale(scale);
 }
 
-SceneObject& Scene::addPart() {
+SceneObject& Scene::addPart(Shape shape) {
     SceneObject obj;
     // El nombre se deduce de cuantos objetos hay; si ese nombre ya
     // existe (escena cargada de archivo), se busca el siguiente libre.
@@ -23,10 +23,34 @@ SceneObject& Scene::addPart() {
         ++index;
         obj.name = "Part" + std::to_string(index);
     }
+    obj.shape = shape;
     obj.position = {static_cast<float>(index % 4) * 1.6f - 2.4f, 0.5f,
                     static_cast<float>(index / 4) * 1.6f};
     objects_.push_back(std::move(obj));
     return objects_.back();
+}
+
+// Valores del archivo de escena (ASCII, en minusculas); la etiqueta
+// que se muestra en la interfaz vive en workspace_tabs.
+const char* shapeName(Shape shape) {
+    switch (shape) {
+        case Shape::Rhombus:    return "rombo";
+        case Shape::Sphere:     return "esfera";
+        case Shape::Cylinder:   return "cilindro";
+        case Shape::Wedge:      return "cuna";
+        case Shape::CornerWedge:return "cuna-esquina";
+        case Shape::Cube:
+        default:                return "cubo";
+    }
+}
+
+Shape shapeFromName(const std::string& name) {
+    if (name == "rombo") return Shape::Rhombus;
+    if (name == "esfera") return Shape::Sphere;
+    if (name == "cilindro") return Shape::Cylinder;
+    if (name == "cuna") return Shape::Wedge;
+    if (name == "cuna-esquina") return Shape::CornerWedge;
+    return Shape::Cube;
 }
 
 void Scene::clear() {
@@ -119,6 +143,8 @@ bool Scene::loadFromFile(const std::string& path) {
             parseVec3(value, current.rotation);
         } else if (key == "escala") {
             parseVec3(value, current.scale);
+        } else if (key == "forma") {
+            current.shape = shapeFromName(value);
         } else if (key == "script") {
             current.script = value;
         }
@@ -143,6 +169,7 @@ bool Scene::saveToFile(const std::string& path) const {
         writeVec3(file, "posicion", object.position);
         writeVec3(file, "rotacion", object.rotation);
         writeVec3(file, "escala", object.scale);
+        file << "forma: " << shapeName(object.shape) << "\n";
         if (!object.script.empty()) file << "script: " << object.script << "\n";
     }
     return file.good();

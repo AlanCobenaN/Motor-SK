@@ -361,7 +361,7 @@ long long __stdcall WorkspaceTabs::wndProc(void* hwndPtr, unsigned int msg,
                     return 0;
                 }
                 if (id == kIdPart) {
-                    if (self->onAddPart_) self->onAddPart_();
+                    if (self->onAddPart_) self->onAddPart_(0);
                     return 0;
                 }
                 if (HIWORD(wParam) == BN_CLICKED && id >= 1 && id <= kTabCount) {

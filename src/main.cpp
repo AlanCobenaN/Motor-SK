@@ -18,6 +18,7 @@
 #include "scene/gizmo.h"
 #include "scene/picking.h"
 #include "scene/scene.h"
+#include "scene/snapping.h"
 #include "ui/code_view.h"
 #include "ui/place_view.h"
 #include "ui/projects_panel.h"
@@ -200,12 +201,15 @@ int main(int argc, char** argv) {
 
     // Atajo "Part": anade el objeto a la escena y al Explorer (insertar
     // lo selecciona, lo que refresca Properties via onSelectionChanged).
-    workspace.setOnAddPart([&]() {
-        const std::string name = scene.addPart().name;
+    workspace.setOnAddPart([&](int shape) {
+        const sk::Shape s = (shape >= 0 && shape < static_cast<int>(sk::Shape::Count))
+                                ? static_cast<sk::Shape>(shape)
+                                : sk::Shape::Cube;
+        const std::string name = scene.addPart(s).name;
         place.addObject(name);
         saveScene();
         logProjection = true;
-        SK_INFO("Part anadido: %s", name.c_str());
+        SK_INFO("Part anadido: %s (%s)", name.c_str(), sk::shapeName(s));
     });
 
     // Cambio de herramienta (botones de la banda o teclas 1-4).
@@ -335,17 +339,27 @@ int main(int argc, char** argv) {
     sk::GizmoDrag gizmoDrag;
 
     // Arrastre de objeto: mantener pulsado el cuerpo de un parte (sin tocar
-    // un asa del gizmo) y arrastrarlo con el puntero por el plano de camara.
+    // un asa del gizmo) y arrastrarlo con el puntero. La caja del grupo
+    // se apoya en la cara del otro parte que esta bajo el puntero (o en
+    // el suelo Y=0 si no hay nada): ver scene/snapping.h.
     struct ObjDragStart {
         std::string name;
         sk::Vec3 pos;
+        sk::Vec3 rot;
     };
     bool objDragActive = false;
     std::vector<ObjDragStart> objDragStart;
-    sk::Vec3 objDragPlaneC{};
-    sk::Vec3 objDragPlaneN{0.0f, 0.0f, 1.0f};
+    // Punto de agarre menos centro del lead al empezar (mundo): fija la
+    // posicion del grupo respecto al puntero durante el arrastre.
+    sk::Vec3 grabOffset{};
     std::string pressHit; // objeto bajo el punto de presion (o vacio)
     bool pressCtrl = false;
+    // Cara bajo el puntero durante el arrastre: se registra una sola vez
+    // por destino para que las pruebas vean donde se apoya el parte sin
+    // repetir el log en cada frame.
+    bool snapLogged = false;
+    std::string snapSurface;
+    sk::Vec3 snapNormal{};
     int hoverAxis = -1;
     // Registro "gizmo eje X punta (x,y)": una sola vez por punta, para
     // que las pruebas sepan donde pulsar sin repetir el log en cada frame.
@@ -418,10 +432,13 @@ int main(int argc, char** argv) {
             SK_INFO("gizmo cancelado");
             applySelection(selection, primary);
         } else if (escDown && !escWasDown && objDragActive) {
-            // Revierte el arrastre del objeto a sus posiciones de inicio.
+            // Revierte el arrastre del objeto a sus poses de inicio
+            // (posicion y rotacion: el snap de superficie puede haber
+            // girado el grupo).
             for (const ObjDragStart& start : objDragStart) {
                 if (sk::SceneObject* object = scene.findByName(start.name)) {
                     object->position = start.pos;
+                    object->rotation = start.rot;
                 }
             }
             objDragActive = false;
@@ -614,106 +631,65 @@ int main(int argc, char** argv) {
             }
         }
 
-        // Arrastre del objeto: SOLO se mueve si el rayo alcanza a otro
-        // parte distinto de los arrastrados (en el vacio se queda
-        // congelado). Con objetivo bajo el puntero el objeto arrastrado
-        // se coloca ENCIMA de su cara superior, centrado en el punto de
-        // golpe y limitado a su huella; el resto de la seleccion sigue
-        // el mismo delta desde sus posiciones de inicio.
+        // Arrastre del objeto: la caja del grupo arrastrado se apoya en
+        // la cara del parte que esta bajo el puntero (cualquier cara:
+        // suelo, techo, pared o inclinada), con la rotacion del lead
+        // alineada a esa cara y la posicion en su plano a la rejilla;
+        // sin nada debajo el rayo cae al plano del suelo Y=0. Alt
+        // conserva la orientacion y Shift desactiva la rejilla.
         if (objDragActive) {
             const sk::Ray ray0 = sk::rayFromCamera(
                 camera, aspect, 60.0f, dragStart, vpW, vpH);
             const sk::Ray ray1 = sk::rayFromCamera(
                 camera, aspect, 60.0f, window.mousePos(), vpW, vpH);
             std::vector<std::string> dragged;
+            std::vector<sk::DragPose> startPose;
             dragged.reserve(objDragStart.size());
+            startPose.reserve(objDragStart.size());
+            int leadIndex = -1;
             for (const ObjDragStart& start : objDragStart) {
+                if (start.name == pressHit) {
+                    leadIndex = static_cast<int>(dragged.size());
+                }
                 dragged.push_back(start.name);
+                startPose.push_back({start.name, start.pos, start.rot});
             }
-            std::string targetName;
-            sk::Vec3 targetHit{};
-            if (sk::pickObjectHit(scene, ray1, dragged, targetName, targetHit)) {
-                // AABB en mundo de un objeto (8 esquinas del modelMatrix).
-                auto worldAABB = [&](const sk::SceneObject& object,
-                                     sk::Vec3& lo, sk::Vec3& hi) {
-                    const sk::Mat4 m = object.modelMatrix();
-                    lo = {1e9f, 1e9f, 1e9f};
-                    hi = {-1e9f, -1e9f, -1e9f};
-                    for (int c = 0; c < 8; ++c) {
-                        const sk::Vec3 local{(c & 1) ? 0.5f : -0.5f,
-                                             (c & 2) ? 0.5f : -0.5f,
-                                             (c & 4) ? 0.5f : -0.5f};
-                        sk::Vec3 w;
-                        if (!sk::transformPoint(m, local, w)) continue;
-                        lo.x = std::fmin(lo.x, w.x);
-                        lo.y = std::fmin(lo.y, w.y);
-                        lo.z = std::fmin(lo.z, w.z);
-                        hi.x = std::fmax(hi.x, w.x);
-                        hi.y = std::fmax(hi.y, w.y);
-                        hi.z = std::fmax(hi.z, w.z);
-                    }
-                };
-                // Media caja del arrastrado (escala + rotacion, sin
-                // traslacion) para saber cuantos huecos ocupa.
-                auto worldHalf = [&](const sk::SceneObject& object) {
-                    sk::SceneObject tmp = object;
-                    tmp.position = {};
-                    sk::Vec3 lo, hi;
-                    worldAABB(tmp, lo, hi);
-                    return sk::Vec3{std::fmax(std::fabs(lo.x), std::fabs(hi.x)),
-                                    std::fmax(std::fabs(lo.y), std::fabs(hi.y)),
-                                    std::fmax(std::fabs(lo.z), std::fabs(hi.z))};
-                };
-
-                sk::Vec3 delta{};
-                const sk::SceneObject* target = scene.findByName(targetName);
-                const sk::SceneObject* lead = scene.findByName(pressHit);
-                const ObjDragStart* leadStart = nullptr;
-                for (const ObjDragStart& start : objDragStart) {
-                    if (start.name == pressHit) leadStart = &start;
+            const bool alignSurface = (GetKeyState(VK_MENU) & 0x8000) == 0;
+            const bool snapGrid = (GetKeyState(VK_SHIFT) & 0x8000) == 0;
+            sk::DragResult result;
+            sk::computeSurfaceDrag(scene, ray0, ray1, dragged, leadIndex,
+                                   grabOffset, startPose, alignSurface,
+                                   snapGrid ? sk::kDragGrid : 0.0f, result);
+            for (const sk::DragPose& pose : result.poses) {
+                if (sk::SceneObject* object = scene.findByName(pose.name)) {
+                    object->position = pose.position;
+                    object->rotation = pose.rotation;
                 }
-                if (target && lead && leadStart) {
-                    sk::Vec3 tLo, tHi;
-                    worldAABB(*target, tLo, tHi);
-                    const sk::Vec3 half = worldHalf(*lead);
-                    const float loX = tLo.x + half.x;
-                    const float hiX = tHi.x - half.x;
-                    const float loZ = tLo.z + half.z;
-                    const float hiZ = tHi.z - half.z;
-                    // Centrado en el golpe, dentro de la huella; si no
-                    // cabe, centrado en el destino.
-                    const float wx = (loX <= hiX)
-                        ? std::fmax(loX, std::fmin(hiX, targetHit.x))
-                        : 0.5f * (tLo.x + tHi.x);
-                    const float wz = (loZ <= hiZ)
-                        ? std::fmax(loZ, std::fmin(hiZ, targetHit.z))
-                        : 0.5f * (tLo.z + tHi.z);
-                    // Siempre encima: apoyado en la cara superior.
-                    const sk::Vec3 wanted{wx, tHi.y + half.y, wz};
-                    delta = wanted - leadStart->pos;
+            }
+            // Registro de la cara de destino: una sola vez por cara (las
+            // pruebas leen donde se apoya el parte sin spam de logs).
+            if (!snapLogged || result.surfaceName != snapSurface ||
+                sk::length(result.surfaceNormal - snapNormal) > 1e-3f) {
+                if (result.onSurface) {
+                    SK_INFO("snap %s: cara de %s normal (%.2f,%.2f,%.2f)",
+                            pressHit.c_str(), result.surfaceName.c_str(),
+                            result.surfaceNormal.x, result.surfaceNormal.y,
+                            result.surfaceNormal.z);
+                } else if (result.groundHit) {
+                    SK_INFO("snap %s: suelo Y=0", pressHit.c_str());
                 } else {
-                    auto planePoint = [&](const sk::Ray& ray) {
-                        const float denom = sk::dot(ray.dir, objDragPlaneN);
-                        float t = 0.0f;
-                        if (std::fabs(denom) > 1e-6f) {
-                            t = sk::dot(objDragPlaneC - ray.origin,
-                                        objDragPlaneN) / denom;
-                        }
-                        return ray.origin + ray.dir * t;
-                    };
-                    delta = planePoint(ray1) - planePoint(ray0);
+                    SK_INFO("snap %s: cielo (x/z del plano de camara, "
+                                          "apoyo en el suelo)",
+                            pressHit.c_str());
                 }
-                for (const ObjDragStart& start : objDragStart) {
-                    if (sk::SceneObject* object =
-                            scene.findByName(start.name)) {
-                        object->position = start.pos + delta;
-                    }
-                }
-                if (selection.size() == 1) {
-                    if (const sk::SceneObject* object =
-                            scene.findByName(selection.front())) {
-                        place.showObject(*object); // Transform al dia
-                    }
+                snapLogged = true;
+                snapSurface = result.surfaceName;
+                snapNormal = result.surfaceNormal;
+            }
+            if (selection.size() == 1) {
+                if (const sk::SceneObject* object =
+                        scene.findByName(selection.front())) {
+                    place.showObject(*object); // Transform al dia
                 }
             }
         }
@@ -789,14 +765,28 @@ int main(int argc, char** argv) {
                     for (const std::string& name : selection) {
                         if (const sk::SceneObject* object =
                                 scene.findByName(name)) {
-                            objDragStart.push_back({name, object->position});
+                            objDragStart.push_back(
+                                {name, object->position, object->rotation});
                         }
                     }
+                    // Punto de agarre (donde se pulso sobre el cuerpo)
+                    // menos el centro del lead: fija la posicion del
+                    // grupo respecto al puntero durante todo el arrastre.
                     const sk::Ray ray0 = sk::rayFromCamera(
                         camera, aspect, 60.0f, dragStart, vpW, vpH);
                     const sk::SceneObject* hitObj = scene.findByName(pressHit);
-                    objDragPlaneC = hitObj ? hitObj->position : gizmoOrigin;
-                    objDragPlaneN = sk::normalize(ray0.dir);
+                    grabOffset = {};
+                    if (hitObj) {
+                        sk::Vec3 grabPoint{};
+                        sk::Vec3 grabNormal{};
+                        if (sk::rayObjectFace(*hitObj, ray0, grabPoint,
+                                              grabNormal)) {
+                            grabOffset = grabPoint - hitObj->position;
+                        }
+                    }
+                    snapLogged = false; // el primer frame registra la cara
+                    snapSurface.clear();
+                    snapNormal = {};
                     dragPending = false;
                     SK_INFO("drag %s: arrastre", pressHit.c_str());
                 } else {
@@ -813,10 +803,13 @@ int main(int argc, char** argv) {
             for (const ObjDragStart& start : objDragStart) {
                 const sk::SceneObject* object = scene.findByName(start.name);
                 if (!object) continue;
-                SK_INFO("drag %s: pos (%.2f,%.2f,%.2f)->(%.2f,%.2f,%.2f)",
+                SK_INFO("drag %s: pos (%.2f,%.2f,%.2f)->(%.2f,%.2f,%.2f) "
+                        "rot (%.2f,%.2f,%.2f)->(%.2f,%.2f,%.2f)",
                         start.name.c_str(), start.pos.x, start.pos.y,
                         start.pos.z, object->position.x, object->position.y,
-                        object->position.z);
+                        object->position.z, start.rot.x, start.rot.y,
+                        start.rot.z, object->rotation.x, object->rotation.y,
+                        object->rotation.z);
             }
             objDragActive = false;
             objDragStart.clear();
@@ -925,9 +918,12 @@ int main(int argc, char** argv) {
         }
 
         std::vector<sk::Mat4> models;
+        std::vector<int> shapeIds;
         models.reserve(scene.objects().size());
+        shapeIds.reserve(scene.objects().size());
         for (const sk::SceneObject& object : scene.objects()) {
             models.push_back(object.modelMatrix());
+            shapeIds.push_back(static_cast<int>(object.shape));
         }
 
         // Contorno celeste: el cubo alambre un 2% mas grande que el
@@ -988,7 +984,7 @@ int main(int argc, char** argv) {
             }
         }
 
-        if (!renderer.drawFrame(viewProj, models, outlines, marquee, gizmoLines)) {
+        if (!renderer.drawFrame(viewProj, models, shapeIds, outlines, marquee, gizmoLines)) {
             SK_ERROR("drawFrame fallo");
             return 1;
         }
