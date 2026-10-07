@@ -18,7 +18,7 @@ Ejecutable `.exe` con:
       (owner-draw), lista y cabeceras oscuras, barra de título oscura
 - [x] Aplicación de ventana sin consola (errores fatales en MessageBox)
 - [x] Tabla con márgenes, esquinas redondeadas y marco; tipografía Segoe UI
-      (16px, cabeceras semibold)
+      (13px, cabeceras semibold)
 - [x] Abrir un proyecto → vista 3D (Esc vuelve al panel)
 - [x] Icono del programa (logo.ico embebido via app.rc): ventana, barra de
        tareas y Alt+Tab
@@ -52,9 +52,9 @@ Ejecutable `.exe` con:
        "-N objetos seleccionados-" con varios, y los objetos elegidos se
         rodean de un contorno celeste (mas el rectangulo de arrastre mientras
         dura el marquee)
-- [x] Barra de herramientas: botones con icono y texto (Seleccionar, Mover,
-        Escalar, Rotar) en la banda superior y teclas 1-4; la herramienta
-        activa se registra en el log
+- [x] Barra de herramientas: tarjetas rectangulares con el icono arriba y el
+        nombre abajo (Seleccionar, Mover, Escalar, Rotar) en la banda
+        superior y teclas 1-4; la herramienta activa se registra en el log
 - [x] Gizmo 3D en el viewport para la seleccion: tres asas de mundo en
         X/Y/Z coloreadas y reordenadas por herramienta (mover desplaza,
         escalar escala, rotar rota), hover con tinte claro y cursores
@@ -69,8 +69,13 @@ Ejecutable `.exe` con:
         al perder el foco, se guarda la escena y los campos se reescriben
         normalizados; si el valor no es valido o ya no hay seleccion se
         restaura el anterior
-- [x] Proyectos nuevos arrancan con un `basepart` en el origen en vez de la
-        escena vacia
+- [x] Properties en cascada: "Transform" se pliega con su triangulito y
+        dentro Position/Rotation/Scale muestran un resumen "x, y, z"
+        editable (separador coma, punto decimal) y los tres ejes X/Y/Z al
+        desplegarlas; cada cascada tiene su triangulo y todo arranca abierto
+- [x] Proyectos nuevos arrancan con un `basepart` (losa de 20x1x20 en el
+        suelo: escala `20 1 20`, posicion `0 -0.5 0`) en vez de la escena
+        vacia
 - [x] Rectangulo de arrastre del marquee alineado con el puntero (origen y
         tamano corregidos en el render, clamado al viewport)
 - [x] Botones de herramientas con el texto pintado una sola vez
