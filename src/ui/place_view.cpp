@@ -21,10 +21,15 @@ const char* kPanelClass = "MotorSKPlacePanel";
 
 constexpr int kHeaderHeight = 36;
 
-// Ids dentro del panel Properties (100.. = etiquetas, 200.. = valores).
+// Ids dentro del panel Properties (100.. = etiquetas, 200.. = valores,
+// 300.. = resumenes "x, y, z" de cada fila del Transform).
 constexpr int kIdStatus = 100;
+constexpr int kIdTransform = 101;
+constexpr int kIdRowLabel = 102;   // 102..104: Position / Rotation / Scale
+constexpr int kIdAxisLabel = 110;  // 110..118: X / Y / Z
 constexpr int kIdAssocValue = 209;
 constexpr int kIdAssocBtn = 210;
+constexpr int kIdSummary = 300;    // 300..302
 
 // Cabecera del panel + linea separadora, dentro del WM_PAINT propio.
 void paintPanelHeader(HDC hdc, const RECT& rc, const char* title) {
@@ -105,6 +110,64 @@ HWND makeEdit(HWND parent, HINSTANCE inst, int id, const char* text,
     return hwnd;
 }
 
+// Triangulito de cascada dentro del WM_PAINT del panel: derecha si esta
+// plegada, abajo si esta desplegada. rect es la zona de click; el
+// triangulo se dibuja un poco mas pequeno por comodidad visual.
+void drawTriangle(HDC hdc, const int rect[4], bool open) {
+    const int l = rect[0] + 3, t = rect[1] + 4;
+    const int r = rect[2] - 3, b = rect[3] - 4;
+    if (r <= l || b <= t) return;
+    POINT poly[3];
+    if (open) {
+        poly[0] = POINT{l, t};
+        poly[1] = POINT{r, t};
+        poly[2] = POINT{(l + r) / 2, b};
+    } else {
+        poly[0] = POINT{l, t};
+        poly[1] = POINT{l, b};
+        poly[2] = POINT{r, (t + b) / 2};
+    }
+    HBRUSH brush = CreateSolidBrush(theme::text());
+    HPEN pen = CreatePen(PS_SOLID, 1, theme::text());
+    HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(hdc, brush));
+    HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, pen));
+    Polygon(hdc, poly, 3);
+    SelectObject(hdc, oldBrush);
+    SelectObject(hdc, oldPen);
+    DeleteObject(pen);
+    DeleteObject(brush);
+}
+
+bool inTri(const int rect[4], int x, int y) {
+    return x >= rect[0] && x < rect[2] && y >= rect[1] && y < rect[3];
+}
+
+// Resumen "x, y, z" de una fila a partir de los tres textos guardados
+// (los ejes ya estan formateados con %.3g).
+std::string joinSummary(const std::string* fields) {
+    if (fields[0] == "-") return "-";
+    return fields[0] + ", " + fields[1] + ", " + fields[2];
+}
+
+// Parsea un resumen "x, y, z": coma como separador y punto como
+// decimal (el teclado espanol con coma decimal solo vale en los ejes
+// sueltos, donde strtof los acepta tras la sustitucion).
+bool parseTriple(const char* text, float out[3]) {
+    const char* p = text;
+    for (int i = 0; i < 3; ++i) {
+        char* end = nullptr;
+        out[i] = strtof(p, &end);
+        if (end == p) return false;
+        p = end;
+        while (*p == ' ') ++p;
+        if (i < 2) {
+            if (*p != ',') return false;
+            ++p;
+        }
+    }
+    return *p == '\0';
+}
+
 } // namespace
 
 bool PlaceView::create(void* parentHwnd) {
@@ -165,38 +228,46 @@ bool PlaceView::create(void* parentHwnd) {
     // Raiz unica por defecto: la dimension/escena del lugar.
     root_ = addTreeRoot(tree, "dimension01");
 
-    // Properties: estado + bloque Transform (editable: al perder el foco
-    // un campo el valor se aplica al objeto via onTransformEdited).
+    // Properties: estado + cascada Transform (Position/Rotation/Scale,
+    // cada fila con su resumen "x, y, z" editable al lado y los tres
+    // ejes al desplegarla). Todo arranca desplegado; layoutProperties
+    // coloca y muestra/oculta segun el estado de las cascadas.
     HWND hprop = static_cast<HWND>(properties_);
-    makeStatic(hprop, inst, 100, "Sin objeto seleccionado",
+    makeStatic(hprop, inst, kIdStatus, "Sin objeto seleccionado",
                12, kHeaderHeight + 8, kPropertiesWidth - 24, 20,
                theme::uiFont());
-    makeStatic(hprop, inst, 101, "Transform",
-               12, kHeaderHeight + 34, 150, 22,
-               theme::uiHeaderFont());
+    makeStatic(hprop, inst, kIdTransform, "Transform",
+               34, 0, 200, 22, theme::uiHeaderFont());
 
     const char* rowLabels[3] = {"Position", "Rotation", "Scale"};
     const char* rowValues[3] = {"0", "0", "1"};
+    const char* axisNames[3] = {"X", "Y", "Z"};
     for (int row = 0; row < 3; ++row) {
-        const int y = kHeaderHeight + 62 + row * 34;
-        makeStatic(hprop, inst, 102 + row, rowLabels[row],
-                   12, y + 2, 70, 22, theme::uiFont());
+        makeStatic(hprop, inst, kIdRowLabel + row, rowLabels[row],
+                   54, 0, 64, 20, theme::uiFont());
+        char summary[32]{};
+        snprintf(summary, sizeof(summary), "%s, %s, %s",
+                 rowValues[row], rowValues[row], rowValues[row]);
+        makeEdit(hprop, inst, kIdSummary + row, summary, 122, 0, 166, 22);
+        summaryText_[row] = summary;
         for (int axis = 0; axis < 3; ++axis) {
+            makeStatic(hprop, inst, kIdAxisLabel + row * 3 + axis,
+                       axisNames[axis], 64, 0, 14, 20, theme::uiFont());
             makeEdit(hprop, inst, 200 + row * 3 + axis, rowValues[row],
-                     84 + axis * 68, y, 64, 24);
+                     84, 0, 150, 22);
+            fieldText_[row * 3 + axis] = rowValues[row];
         }
     }
 
     // ModelScript: script asociado al objeto seleccionado.
-    const int assocY = kHeaderHeight + 62 + 3 * 34;
     makeStatic(hprop, inst, 105, "Asociado a",
-               12, assocY + 2, 70, 22, theme::uiFont());
+               12, 0, 70, 20, theme::uiFont());
     makeStatic(hprop, inst, kIdAssocValue, "-",
-               84, assocY + 2, 126, 22, theme::uiFont());
+               84, 0, 104, 20, theme::uiFont());
     HWND assocBtn = CreateWindowExA(0, "BUTTON", "Cambiar...",
                                     WS_CHILD | WS_VISIBLE | WS_TABSTOP |
                                         BS_OWNERDRAW,
-                                    214, assocY, 74, 26, hprop,
+                                    196, 0, 92, 24, hprop,
                                     reinterpret_cast<HMENU>(
                                         static_cast<INT_PTR>(kIdAssocBtn)),
                                     inst, nullptr);
@@ -204,6 +275,7 @@ bool PlaceView::create(void* parentHwnd) {
                  reinterpret_cast<WPARAM>(theme::uiFont()), TRUE);
     ui::makeDarkButton(assocBtn);
     EnableWindow(assocBtn, FALSE); // sin objeto seleccionado aun
+    layoutProperties();
 
     resize(rc.right, rc.bottom);
     SK_INFO("Paneles PLACE listos (Properties %d izq + Explorer %d der)",
@@ -279,6 +351,7 @@ void PlaceView::showObject(const SceneObject& object) {
         setTransformField(props, 206 + axis, (&object.scale.x)[axis],
                           &fieldText_[6 + axis]);
     }
+    updateSummaries();
     if (HWND assoc = GetDlgItem(props, kIdAssocValue)) {
         SetWindowTextA(assoc, object.script.empty() ? "-" : object.script.c_str());
     }
@@ -293,6 +366,7 @@ void PlaceView::showRoot() {
         SetWindowTextA(status, "dimension01");
     }
     setTransformIdentity(props, fieldText_);
+    updateSummaries();
     if (HWND assoc = GetDlgItem(props, kIdAssocValue)) SetWindowTextA(assoc, "-");
     if (HWND btn = GetDlgItem(props, kIdAssocBtn)) EnableWindow(btn, FALSE);
 }
@@ -305,6 +379,7 @@ void PlaceView::showNoSelection() {
         SetWindowTextA(status, "Sin objeto seleccionado");
     }
     setTransformIdentity(props, fieldText_);
+    updateSummaries();
     if (HWND assoc = GetDlgItem(props, kIdAssocValue)) SetWindowTextA(assoc, "-");
     if (HWND btn = GetDlgItem(props, kIdAssocBtn)) EnableWindow(btn, FALSE);
 }
@@ -324,6 +399,7 @@ void PlaceView::showMultiple(int count) {
             fieldText_[row * 3 + axis] = "-";
         }
     }
+    updateSummaries();
     if (HWND assoc = GetDlgItem(props, kIdAssocValue)) SetWindowTextA(assoc, "-");
     if (HWND btn = GetDlgItem(props, kIdAssocBtn)) EnableWindow(btn, FALSE);
 }
@@ -375,6 +451,87 @@ void PlaceView::notifySelection() {
     onSelectionChanged_(text);
 }
 
+// Reescribe los resumenes "x, y, z" (ids 300..302) a partir de los
+// textos de los ejes ya guardados en fieldText_.
+void PlaceView::updateSummaries() {
+    HWND props = static_cast<HWND>(properties_);
+    if (!props) return;
+    for (int row = 0; row < 3; ++row) {
+        summaryText_[row] = joinSummary(&fieldText_[row * 3]);
+        if (HWND sum = GetDlgItem(props, kIdSummary + row)) {
+            SetWindowTextA(sum, summaryText_[row].c_str());
+        }
+    }
+}
+
+// Coloca los controles del panel Properties segun el estado de las
+// cascadas (Transform y cada fila) y muestra/oculta lo que toque. Las
+// filas plegadas siguen mostrando su resumen "x, y, z" editable.
+void PlaceView::layoutProperties() {
+    HWND props = static_cast<HWND>(properties_);
+    if (!props) return;
+    auto place = [props](int id, int x, int y, int w, int h, bool show) {
+        HWND ctl = GetDlgItem(props, id);
+        if (!ctl) return;
+        SetWindowPos(ctl, nullptr, x, y, w, h,
+                     SWP_NOZORDER | SWP_NOACTIVATE);
+        ShowWindow(ctl, show ? SW_SHOW : SW_HIDE);
+    };
+
+    int y = kHeaderHeight + 8;
+    place(kIdStatus, 12, y, kPropertiesWidth - 24, 20, true);
+    y += 26;
+
+    triTransform_[0] = 12;
+    triTransform_[1] = y;
+    triTransform_[2] = 30;
+    triTransform_[3] = y + 22;
+    place(kIdTransform, 34, y + 1, 200, 22, true);
+    y += 26;
+
+    for (int row = 0; row < 3; ++row) {
+        if (!transformOpen_) {
+            // Transform plegado: se oculta toda la fila (triangulos
+            // tambien, para que no queden zonas de click huerfanas).
+            for (int i = 0; i < 4; ++i) triRow_[row][i] = 0;
+            place(kIdRowLabel + row, 0, 0, 64, 20, false);
+            place(kIdSummary + row, 0, 0, 166, 22, false);
+            for (int axis = 0; axis < 3; ++axis) {
+                place(kIdAxisLabel + row * 3 + axis, 0, 0, 14, 20, false);
+                place(200 + row * 3 + axis, 0, 0, 150, 22, false);
+            }
+            continue;
+        }
+        int* tri = triRow_[row];
+        tri[0] = 36;
+        tri[1] = y + 1;
+        tri[2] = 52;
+        tri[3] = y + 23;
+        place(kIdRowLabel + row, 54, y + 1, 64, 20, true);
+        place(kIdSummary + row, 122, y, 166, 22, true);
+        y += 24;
+        if (!rowOpen_[row]) {
+            // Fila plegada: los ejes se ocultan (el resumen sigue).
+            for (int axis = 0; axis < 3; ++axis) {
+                place(kIdAxisLabel + row * 3 + axis, 0, 0, 14, 20, false);
+                place(200 + row * 3 + axis, 0, 0, 150, 22, false);
+            }
+            continue;
+        }
+        for (int axis = 0; axis < 3; ++axis) {
+            place(kIdAxisLabel + row * 3 + axis, 64, y + 1, 14, 20, true);
+            place(200 + row * 3 + axis, 84, y, 150, 22, true);
+            y += 24;
+        }
+    }
+
+    y += 2;
+    place(105, 12, y + 2, 70, 20, true);
+    place(kIdAssocValue, 84, y + 2, 104, 20, true);
+    place(kIdAssocBtn, 196, y, 92, 24, true);
+    InvalidateRect(props, nullptr, TRUE);
+}
+
 void PlaceView::layoutPanels(int width, int height) {
     if (!explorer_ || !properties_) return;
     const int y = WorkspaceTabs::kTopBandHeight;
@@ -417,8 +574,46 @@ long long __stdcall PlaceView::wndProc(void* hwndPtr, unsigned int msg,
             GetWindowTextA(hwnd, title, static_cast<int>(sizeof(title)));
             paintPanelHeader(hdc, rc, title);
 
+            // Triangulitos de las cascadas del Transform (solo en el
+            // panel de Properties; las zonas huerfanas van a cero).
+            if (self && hwnd == static_cast<HWND>(self->properties_)) {
+                HFONT oldFont =
+                    static_cast<HFONT>(SelectObject(hdc, theme::uiFont()));
+                SetBkMode(hdc, TRANSPARENT);
+                drawTriangle(hdc, self->triTransform_, self->transformOpen_);
+                if (self->transformOpen_) {
+                    for (int row = 0; row < 3; ++row) {
+                        drawTriangle(hdc, self->triRow_[row],
+                                     self->rowOpen_[row]);
+                    }
+                }
+                SelectObject(hdc, oldFont);
+            }
+
             EndPaint(hwnd, &ps);
             return 0;
+        }
+        case WM_LBUTTONDOWN: {
+            // Click en un triangulito: alterna la cascada y recoloca.
+            if (self && hwnd == static_cast<HWND>(self->properties_)) {
+                const int x = static_cast<short>(LOWORD(lParam));
+                const int y = static_cast<short>(HIWORD(lParam));
+                if (inTri(self->triTransform_, x, y)) {
+                    self->transformOpen_ = !self->transformOpen_;
+                    self->layoutProperties();
+                    return 0;
+                }
+                if (self->transformOpen_) {
+                    for (int row = 0; row < 3; ++row) {
+                        if (inTri(self->triRow_[row], x, y)) {
+                            self->rowOpen_[row] = !self->rowOpen_[row];
+                            self->layoutProperties();
+                            return 0;
+                        }
+                    }
+                }
+            }
+            break;
         }
         case WM_DRAWITEM: {
             auto* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
@@ -458,6 +653,31 @@ long long __stdcall PlaceView::wndProc(void* hwndPtr, unsigned int msg,
                 } else if (field) {
                     // No es un numero o no hay objeto: texto anterior.
                     SetWindowTextA(field, self->fieldText_[id - 200].c_str());
+                }
+                return 0;
+            }
+            // Resumen "x, y, z" (ids 300..302): al perder el foco se
+            // aplican los tres ejes de la fila de una vez.
+            if (id >= kIdSummary && id <= kIdSummary + 2 &&
+                code == EN_KILLFOCUS && self->onTransformEdited_) {
+                HWND field =
+                    GetDlgItem(static_cast<HWND>(self->properties_), id);
+                char text[96]{};
+                if (field) {
+                    GetWindowTextA(field, text,
+                                   static_cast<int>(sizeof(text)));
+                }
+                float values[3]{};
+                if (parseTriple(text, values) && !self->selectedName_.empty()) {
+                    const int row = id - kIdSummary;
+                    for (int axis = 0; axis < 3; ++axis) {
+                        self->onTransformEdited_(self->selectedName_,
+                                                 200 + row * 3 + axis,
+                                                 values[axis]);
+                    }
+                } else if (field) {
+                    SetWindowTextA(field,
+                                   self->summaryText_[id - kIdSummary].c_str());
                 }
                 return 0;
             }

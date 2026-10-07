@@ -16,9 +16,10 @@ namespace sk {
 //
 // El Explorer arranca con una unica raiz "dimension01" (la escena del
 // lugar) y recibe los objetos anadidos con addObject(). Properties
-// muestra el Transform del objeto seleccionado (o la raiz) y su script
-// asociado (ModelScript); el boton "Cambiar..." abre el selector de
-// scripts via onAssocEdit.
+// muestra el Transform del objeto seleccionado (o la raiz) en cascada:
+// "Transform" se pliega y dentro Position/Rotation/Scale muestran un
+// resumen "x, y, z" editable y los tres ejes al desplegarlas; su script
+// asociado (ModelScript) va con el boton "Cambiar..." via onAssocEdit.
 class PlaceView {
 public:
     static constexpr int kExplorerWidth = 260;
@@ -79,6 +80,8 @@ private:
     static long long __stdcall wndProc(void* hwnd, unsigned int msg,
                                        unsigned long long wParam, long long lParam);
     void layoutPanels(int width, int height);
+    void layoutProperties();
+    void updateSummaries();
     void notifySelection();
 
     void* parent_ = nullptr;
@@ -92,6 +95,15 @@ private:
     // Ultimo texto mostrado en cada campo Transform (para restaurarlo si
     // la edicion no es un numero o no hay objeto seleccionado).
     std::string fieldText_[9];
+    // Estado de las cascadas del panel Transform: todo desplegado al
+    // arrancar. tri*_ es la zona de click del triangulito (cliente del
+    // panel: x0, y0, x1, y1; vacia si la cascada no se muestra).
+    bool transformOpen_ = true;
+    bool rowOpen_[3] = {true, true, true};
+    int triTransform_[4] = {};
+    int triRow_[3][4] = {};
+    // Ultimo texto de los resumenes "x, y, z" (ids 300..302).
+    std::string summaryText_[3];
     std::function<void(const std::string&)> onSelectionChanged_;
     std::function<void(const std::string&)> onAssocEdit_;
     std::function<void(const std::string&, int, float)> onTransformEdited_;
