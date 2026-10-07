@@ -29,10 +29,10 @@ constexpr int kCircleSegments = 64;
 constexpr int kCenterSegments = 20;
 constexpr float kTwoPi = 6.28318530718f;
 
-Vec3 axisColor(int axis, int hoveredAxis) {
-    if (axis < 0 || axis > 2) return kCenterColor;
-    const Vec3 c = kAxisColors[axis];
-    if (axis != hoveredAxis) return c;
+Vec3 axisColor(int handle, int hoveredAxis) {
+    if (handle < 0 || handle > 5) return kCenterColor;
+    const Vec3 c = kAxisColors[handle % 3];
+    if (handle != hoveredAxis) return c;
     // Hover: 50% mezclado con blanco.
     return {(c.x + 1.0f) * 0.5f, (c.y + 1.0f) * 0.5f, (c.z + 1.0f) * 0.5f};
 }
@@ -128,33 +128,38 @@ std::vector<GizmoLine> buildGizmo(int tool, const Vec3& origin, float scaleMax,
         return lines;
     }
 
-    // Mover / Escalar: un eje con punta por cada direccion.
+    // Mover / Escalar: media linea con punta hacia cada direccion del
+    // eje (mango 0..2 positivo, 3..5 negativo).
     for (int axis = 0; axis < 3; ++axis) {
         const Vec3 eje = kAxisDirs[axis];
-        const Vec3 tip = origin + eje * L;
-        add(origin, tip, axis);
-        if (tool == 1) {
-            // Punta de flecha en V, billboard (mirando a la camara).
-            Vec3 side = cross(vd, eje);
-            if (length(side) < 1e-4f) side = cross(Vec3{0.0f, 0.0f, 1.0f}, eje);
-            if (length(side) < 1e-4f) side = cross(Vec3{1.0f, 0.0f, 0.0f}, eje);
-            side = normalize(side);
-            const Vec3 back = tip - eje * (0.22f * L);
-            add(tip, back + side * (0.10f * L), axis);
-            add(tip, back - side * (0.10f * L), axis);
-        } else {
-            // Escalar: cuadrito billboard en el extremo.
-            Vec3 e1, e2;
-            billboardBasis(vd, e1, e2);
-            const float h = 0.08f * L;
-            const Vec3 corners[4] = {
-                tip + (e1 + e2) * h,
-                tip + (e1 - e2) * h,
-                tip - (e1 + e2) * h,
-                tip + (e2 - e1) * h,
-            };
-            for (int i = 0; i < 4; ++i) {
-                add(corners[i], corners[(i + 1) % 4], axis);
+        for (int dir = 0; dir < 2; ++dir) {
+            const int handle = axis + (dir == 0 ? 0 : 3);
+            const float sign = (dir == 0) ? 1.0f : -1.0f;
+            const Vec3 tip = origin + eje * (sign * L);
+            add(origin, tip, handle);
+            if (tool == 1) {
+                // Punta de flecha en V, billboard (mirando a la camara).
+                Vec3 side = cross(vd, eje);
+                if (length(side) < 1e-4f) side = cross(Vec3{0.0f, 0.0f, 1.0f}, eje);
+                if (length(side) < 1e-4f) side = cross(Vec3{1.0f, 0.0f, 0.0f}, eje);
+                side = normalize(side);
+                const Vec3 back = tip - eje * (sign * 0.22f * L);
+                add(tip, back + side * (0.10f * L), handle);
+                add(tip, back - side * (0.10f * L), handle);
+            } else {
+                // Escalar: cuadrito billboard en el extremo.
+                Vec3 e1, e2;
+                billboardBasis(vd, e1, e2);
+                const float h = 0.08f * L;
+                const Vec3 corners[4] = {
+                    tip + (e1 + e2) * h,
+                    tip + (e1 - e2) * h,
+                    tip - (e1 + e2) * h,
+                    tip + (e2 - e1) * h,
+                };
+                for (int i = 0; i < 4; ++i) {
+                    add(corners[i], corners[(i + 1) % 4], handle);
+                }
             }
         }
     }
@@ -197,33 +202,40 @@ int hitTestGizmo(const std::vector<GizmoLine>& lines, const Vec2& pointer,
     return bestAxis;
 }
 
-Vec3 gizmoHandlePoint(int tool, int axis, const Vec3& origin, float scaleMax) {
-    if (axis < 0 || axis > 2) return origin;
+Vec3 gizmoHandlePoint(int tool, int handle, const Vec3& origin, float scaleMax) {
+    if (handle < 0 || handle > 5) return origin;
     const float L = 0.5f * std::fabs(scaleMax) + 1.0f;
     if (tool == 3) {
         // Punto del circulo a 45 grados (los ejes cardinales los comparten
-        // los tres circulos y el hit test seria ambiguo).
+        // los tres circulos y el hit test seria ambiguo). Rotar solo
+        // tiene mangos positivos (0..2).
+        if (handle > 2) return origin;
         Vec3 u, v;
-        circleBasis(kAxisDirs[axis], u, v);
+        circleBasis(kAxisDirs[handle], u, v);
         const float R = 0.75f * L;
         return origin + (u + v) * (R * 0.70710678f);
     }
-    return origin + kAxisDirs[axis] * L;
+    const int axis = handle % 3;
+    const float sign = (handle < 3) ? 1.0f : -1.0f;
+    return origin + kAxisDirs[axis] * (sign * L);
 }
 
-bool gizmoBegin(GizmoDrag& drag, int tool, int axis, const Scene& scene,
+bool gizmoBegin(GizmoDrag& drag, int tool, int handle, const Scene& scene,
                 const std::vector<std::string>& selection, const Vec3& origin,
                 float scaleMax, const Vec3& viewDir, const Ray& ray) {
-    if (selection.empty() || axis < 0 || axis > 2 || tool < 1 || tool > 3) {
+    const int maxHandle = (tool == 3) ? 2 : 5;
+    if (selection.empty() || handle < 0 || handle > maxHandle || tool < 1 ||
+        tool > 3) {
         return false;
     }
 
     GizmoDrag d;
     d.active = true;
     d.tool = tool;
-    d.axis = axis;
+    d.axis = handle % 3;
+    d.axisSign = (handle < 3) ? 1 : -1;
     d.origin = origin;
-    d.axisDir = kAxisDirs[axis];
+    d.axisDir = kAxisDirs[d.axis];
     d.L = 0.5f * std::fabs(scaleMax) + 1.0f;
     d.snapshots.reserve(selection.size());
     for (const std::string& name : selection) {
@@ -288,16 +300,29 @@ bool gizmoUpdate(GizmoDrag& drag, const Ray& ray, Scene& scene) {
     }
 
     if (drag.tool == 2) {
-        // Escalar: factor sobre la componente del eje arrastrado.
+        // Escalar: factor sobre la componente del eje arrastrado, con la
+        // cara OPUESTA al mango anclada (la posicion se desplaza media
+        // variacion de escala hacia la direccion del mango). Si el
+        // objeto esta rotado el anclaje usa los ejes de mundo (AABB del
+        // gizmo), suficiente para la seleccion tipica sin rotar.
         const float s = dot(hit - drag.origin, drag.axisDir);
-        float factor = 1.0f + (s - drag.s0) / drag.L;
+        // Con el mango negativo (handle 3..5) alejarse del centro va en
+        // -eje: el signo invierte el factor para que arrastrar hacia
+        // fuera siempre crezca.
+        float factor =
+            1.0f + drag.axisSign * (s - drag.s0) / drag.L;
         factor = std::max(0.05f, std::min(1000.0f, factor));
         for (const GizmoSnapshot& snap : drag.snapshots) {
             SceneObject* object = scene.findByName(snap.name);
             if (!object) continue;
             object->scale = snap.scale;
-            setComponent(object->scale, drag.axis,
-                         component(snap.scale, drag.axis) * factor);
+            const float oldComp = component(snap.scale, drag.axis);
+            const float newComp = oldComp * factor;
+            setComponent(object->scale, drag.axis, newComp);
+            object->position = snap.position;
+            setComponent(object->position, drag.axis,
+                         component(snap.position, drag.axis) +
+                             drag.axisSign * 0.5f * (newComp - oldComp));
         }
         return true;
     }
