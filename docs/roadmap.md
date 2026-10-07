@@ -64,6 +64,16 @@ Ejecutable `.exe` con:
 - [x] Foco del teclado: al escribir en Properties las teclas de camara y
         herramientas quedan bloqueadas, y un click en la vista las libera
         (clase EDIT detectada sin distinguir mayusculas)
+- [x] Properties Transform editable: los nueve campos de posicion, rotacion y
+        escala se editan tecleando (acepta coma decimal), el cambio se aplica
+        al perder el foco, se guarda la escena y los campos se reescriben
+        normalizados; si el valor no es valido o ya no hay seleccion se
+        restaura el anterior
+- [x] Proyectos nuevos arrancan con un `basepart` en el origen en vez de la
+        escena vacia
+- [x] Rectangulo de arrastre del marquee alineado con el puntero (origen y
+        tamano corregidos en el render, clamado al viewport)
+- [x] Botones de herramientas con el texto pintado una sola vez
 - [ ] Abrir un archivo/archivo de escena
 - [x] Cámara libre: WASD para moverse, click derecho para mirar, scroll para
        acercar/alejar
