@@ -1076,19 +1076,26 @@ bool Renderer::drawFrame(const Mat4& viewProj, const std::vector<Mat4>& objects,
         vkCmdDraw(command, gizmoCount, 1, 0, 0);
     }
 
-    // Rectangulo de arrastre (marquee): coordenadas de pantalla a NDC
-    // con un MVP que solo centra y escala el cuadrado unitario.
-    if (marquee.valid && marqueeBuffer_ != VK_NULL_HANDLE) {
+    // Rectangulo de arrastre (marquee): coordenadas de cliente a NDC.
+    // En Vulkan el clip Y crece hacia abajo (igual que los pixeles), asi
+    // que basta mapear [0,h] a [-1,1] sin invertir nada.
+    if (marquee.valid && marqueeBuffer_ != VK_NULL_HANDLE &&
+        pipeline_ != VK_NULL_HANDLE) {
         const float w = static_cast<float>(swapchainExtent_.width);
         const float h = static_cast<float>(swapchainExtent_.height);
         const Vec3 center{((marquee.x0 + marquee.x1) * 0.5f) / w * 2.0f - 1.0f,
                           ((marquee.y0 + marquee.y1) * 0.5f) / h * 2.0f - 1.0f,
                           0.0f};
-        const Vec3 half{(marquee.x1 - marquee.x0) * 0.5f / w,
-                        (marquee.y1 - marquee.y0) * 0.5f / h, 1.0f};
+        // Media extension en NDC: [0,w] ocupa [-1,1], asi que la mitad
+        // del rectangulo es (x1-x0)/w. La formula anterior llevaba un
+        // 0.5 de mas y el rect salia a la mitad de tamano (las esquinas
+        // no seguian al puntero).
+        const Vec3 half{(marquee.x1 - marquee.x0) / w,
+                        (marquee.y1 - marquee.y0) / h, 1.0f};
         const Mat4 mvp = translate(center) * sk::scale(half);
 
-        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          pipeline_);
         const VkBuffer marqueeBuffer = marqueeBuffer_;
         const VkDeviceSize marqueeOffset = 0;
         vkCmdBindVertexBuffers(command, 0, 1, &marqueeBuffer, &marqueeOffset);

@@ -729,14 +729,28 @@ int main(int argc, char** argv) {
             }
         }
 
-        // Rectangulo de arrastre mientras dura el marquee.
+        // Rectangulo de arrastre mientras dura el marquee. Se muestra
+        // igual que la seleccion al soltar: clamado al viewport para que
+        // el rectangulo visible coincida con lo que se selecciona.
         sk::ScreenRect marquee;
         if (dragActive && inViewport(dragStart)) {
+            const sk::Vec2 pos = window.mousePos();
+            float x0 = std::fmin(dragStart.x, pos.x);
+            float y0 = std::fmin(dragStart.y, pos.y);
+            float x1 = std::fmax(dragStart.x, pos.x);
+            float y1 = std::fmax(dragStart.y, pos.y);
+            x0 = std::fmax(x0, static_cast<float>(
+                                   sk::PlaceView::kPropertiesWidth));
+            y0 = std::fmax(y0, static_cast<float>(
+                                   sk::WorkspaceTabs::kTopBandHeight));
+            x1 = std::fmin(x1, static_cast<float>(
+                                   vpW - sk::PlaceView::kExplorerWidth));
+            y1 = std::fmin(y1, static_cast<float>(vpH));
             marquee.valid = true;
-            marquee.x0 = std::fmin(dragStart.x, window.mousePos().x);
-            marquee.y0 = std::fmin(dragStart.y, window.mousePos().y);
-            marquee.x1 = std::fmax(dragStart.x, window.mousePos().x);
-            marquee.y1 = std::fmax(dragStart.y, window.mousePos().y);
+            marquee.x0 = x0;
+            marquee.y0 = y0;
+            marquee.x1 = x1;
+            marquee.y1 = y1;
         }
 
         // Lineas del gizmo: un vertice por extremo de segmento (el
