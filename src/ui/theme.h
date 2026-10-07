@@ -42,11 +42,11 @@ inline HBRUSH headerBackgroundBrush() {
     return brush;
 }
 
-// Tipografia de la interfaz: Segoe UI compacta (13px); los paneles y la
+// Tipografia de la interfaz: Segoe UI compacta (12px); los paneles y la
 // barra superior estaban demasiado grandes a 16px.
 inline HFONT uiFont() {
     static HFONT font = CreateFontW(
-        -13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+        -12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
         OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
         DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
     return font;
@@ -55,7 +55,7 @@ inline HFONT uiFont() {
 // Fuente de las cabeceras del ListView: mismo tamano y semibold.
 inline HFONT uiHeaderFont() {
     static HFONT font = CreateFontW(
-        -13, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+        -12, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
         OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
         DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
     return font;

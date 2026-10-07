@@ -24,23 +24,26 @@ struct ToolButton {
     int width;
 };
 const ToolButton kToolButtons[] = {
-    {110, "Seleccionar", 10, 76},
-    {111, "Mover", 92, 76},
-    {112, "Escalar", 174, 76},
-    {113, "Rotar", 256, 76},
+    {110, "Seleccionar", 10, 64},
+    {111, "Mover", 80, 64},
+    {112, "Escalar", 150, 64},
+    {113, "Rotar", 220, 64},
 };
-constexpr int kPartX = 342;
-constexpr int kPartWidth = 74;
-constexpr int kRowY = 3;
-constexpr int kRowHeight = 34;
-constexpr int kPartY = 7;
-constexpr int kPartHeight = 26;
+// El boton "Part" es una tarjeta mas igualada a las demas (mismo alto
+// y ancho, icono arriba y nombre abajo).
+constexpr int kPartX = 290;
+constexpr int kPartWidth = 64;
+constexpr int kRowY = 2;
+constexpr int kRowHeight = 70;
+constexpr int kPartY = 2;
+constexpr int kPartHeight = 70;
 
 // Icono GDI de cada herramienta, centrado en la mitad superior de la
 // tarjeta; lineas simples en color texto sobre el fondo (oscuro o acento).
+// Los trazos son un 33% mas largos que la version anterior.
 void paintToolIcon(HDC hdc, const RECT& rc, int tool) {
     const int cx = (rc.left + rc.right) / 2;
-    const int cy = rc.top + 12;
+    const int cy = rc.top + 14;
     HPEN pen = CreatePen(PS_SOLID, 1, theme::text());
     HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, pen));
     auto line = [&](int x0, int y0, int x1, int y1) {
@@ -49,34 +52,34 @@ void paintToolIcon(HDC hdc, const RECT& rc, int tool) {
     };
     switch (tool) {
         case 0: // cursor de seleccion
-            line(-4, -6, -4, 6);
-            line(-4, -6, 4, 0);
-            line(-4, 6, 4, 0);
+            line(-5, -8, -5, 8);
+            line(-5, -8, 5, 0);
+            line(-5, 8, 5, 0);
             break;
         case 1: // mover: cruz con puntas de flecha
-            line(-6, 0, 6, 0);
-            line(0, -6, 0, 6);
-            line(-6, 0, -3, -3);
-            line(-6, 0, -3, 3);
-            line(6, 0, 3, -3);
-            line(6, 0, 3, 3);
-            line(0, -6, -3, -3);
-            line(0, -6, 3, -3);
-            line(0, 6, -3, 3);
-            line(0, 6, 3, 3);
+            line(-8, 0, 8, 0);
+            line(0, -8, 0, 8);
+            line(-8, 0, -4, -4);
+            line(-8, 0, -4, 4);
+            line(8, 0, 4, -4);
+            line(8, 0, 4, 4);
+            line(0, -8, -4, -4);
+            line(0, -8, 4, -4);
+            line(0, 8, -4, 4);
+            line(0, 8, 4, 4);
             break;
         case 2: // escalar: dos esquinas opuestas
-            line(-6, -6, -1, -6);
-            line(-6, -6, -6, -1);
-            line(6, 6, 1, 6);
-            line(6, 6, 6, 1);
-            line(-4, -4, 4, 4);
+            line(-8, -8, -2, -8);
+            line(-8, -8, -8, -2);
+            line(8, 8, 2, 8);
+            line(8, 8, 8, 2);
+            line(-5, -5, 5, 5);
             break;
         default: // rotar: arco con punta
-            line(-5, 3, -3, -4);
-            line(-3, -4, 4, -4);
-            line(4, -4, 5, 2);
-            line(5, 2, 1, 0);
+            line(-7, 4, -4, -5);
+            line(-4, -5, 5, -5);
+            line(5, -5, 7, 3);
+            line(7, 3, 2, 0);
             break;
     }
     SelectObject(hdc, oldPen);
@@ -112,7 +115,7 @@ void paintTool(const DRAWITEMSTRUCT& dis, bool active) {
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, theme::text());
     RECT textRc = rc;
-    textRc.top += 18;
+    textRc.top += 26;
     DrawTextA(hdc, label, -1, &textRc,
               DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
     SelectObject(hdc, oldFont);
@@ -147,33 +150,36 @@ void paintTab(const DRAWITEMSTRUCT& dis, bool active) {
     SelectObject(hdc, oldFont);
 }
 
-// Boton "Part" de la barra de atajos: base de boton oscuro (con hover,
-// via dark_button) y un cubito de acento a la izquierda de la etiqueta.
+// Boton "Part" de la barra de atajos: igual que las tarjetas de
+// herramienta (base oscura con hover, cubito de acento arriba y nombre
+// abajo).
 void paintPart(const DRAWITEMSTRUCT& dis) {
-    if (!ui::paintDarkButton(dis)) return;
+    if (!ui::paintDarkButton(dis, false)) return;
 
     HDC hdc = dis.hDC;
     RECT rc = dis.rcItem;
+    const int cx = (rc.left + rc.right) / 2;
+    const int cy = rc.top + 14;
+
+    HBRUSH brush = CreateSolidBrush(theme::accent());
+    HPEN pen = CreatePen(PS_SOLID, 1, theme::border());
+    HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(hdc, brush));
+    HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, pen));
+    RoundRect(hdc, cx - 8, cy - 8, cx + 8, cy + 8, 4, 4);
+    SelectObject(hdc, oldBrush);
+    SelectObject(hdc, oldPen);
+    DeleteObject(pen);
+    DeleteObject(brush);
+
+    char label[64]{};
+    GetWindowTextA(dis.hwndItem, label, static_cast<int>(sizeof(label)));
     HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, theme::uiFont()));
-
-    SIZE sz{};
-    GetTextExtentPoint32A(hdc, "Part", 4, &sz);
-    const int textX = rc.left + ((rc.right - rc.left) - static_cast<int>(sz.cx)) / 2;
-    const int iconX = textX - 18;
-    const int iconY = rc.top + ((rc.bottom - rc.top) - 12) / 2;
-
-    if (iconX > rc.left + 2) {
-        HBRUSH brush = CreateSolidBrush(theme::accent());
-        HPEN pen = CreatePen(PS_SOLID, 1, theme::border());
-        HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(hdc, brush));
-        HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, pen));
-        RoundRect(hdc, iconX, iconY, iconX + 12, iconY + 12, 3, 3);
-        SelectObject(hdc, oldBrush);
-        SelectObject(hdc, oldPen);
-        DeleteObject(pen);
-        DeleteObject(brush);
-    }
-
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, theme::text());
+    RECT textRc = rc;
+    textRc.top += 26;
+    DrawTextA(hdc, label, -1, &textRc,
+              DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
     SelectObject(hdc, oldFont);
 }
 

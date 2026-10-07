@@ -27,6 +27,11 @@ Ray rayFromCamera(const Camera& camera, float aspect, float fovYDegrees,
 // Nombre del objeto mas cercano tocado por el rayo ("" si no hay hit).
 std::string pickObject(const Scene& scene, const Ray& ray);
 
+// Igual que pickObject ignorando los nombres de `ignore` (el arrastre
+// de cuerpo los descarta para exigir otro parte bajo el puntero).
+std::string pickObjectExcept(const Scene& scene, const Ray& ray,
+                             const std::vector<std::string>& ignore);
+
 // Objetos cuya caja proyectada intersecta el rectangulo (x0,y0)-(x1,y1)
 // en coordenadas de cliente. x0<x1, y0<y1.
 std::vector<std::string> selectInRect(const Scene& scene, const Mat4& viewProj,

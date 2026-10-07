@@ -92,11 +92,24 @@ Ray rayFromCamera(const Camera& camera, float aspect, float fovYDegrees,
 }
 
 std::string pickObject(const Scene& scene, const Ray& ray) {
+    return pickObjectExcept(scene, ray, {});
+}
+
+std::string pickObjectExcept(const Scene& scene, const Ray& ray,
+                             const std::vector<std::string>& ignore) {
     // t es del espacio local de cada objeto (depende de su escala), asi
     // que se compara la distancia real en mundo al punto de impacto.
     float bestT = FLT_MAX;
     std::string best;
     for (const SceneObject& object : scene.objects()) {
+        bool skipped = false;
+        for (const std::string& name : ignore) {
+            if (name == object.name) {
+                skipped = true;
+                break;
+            }
+        }
+        if (skipped) continue;
         const Mat4 inv = inverseModel(object);
         const Vec3 localOrigin = affine(inv, ray.origin);
         const Vec3 localDir = transformDir(inv, ray.dir);

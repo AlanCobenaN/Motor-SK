@@ -21,14 +21,19 @@ const char* kPanelClass = "MotorSKPlacePanel";
 
 constexpr int kHeaderHeight = 36;
 
+// Raiz unica del arbol Explorer: la dimension/escena del lugar. Tambien
+// es el "Parent" que muestra Properties para cualquier parte.
+constexpr const char* kRootName = "dimension01";
+
 // Ids dentro del panel Properties (100.. = etiquetas, 200.. = valores,
 // 300.. = resumenes "x, y, z" de cada fila del Transform).
 constexpr int kIdStatus = 100;
 constexpr int kIdTransform = 101;
 constexpr int kIdRowLabel = 102;   // 102..104: Position / Rotation / Scale
+constexpr int kIdParentLabel = 105;
+constexpr int kIdNameLabel = 106;
 constexpr int kIdAxisLabel = 110;  // 110..118: X / Y / Z
-constexpr int kIdAssocValue = 209;
-constexpr int kIdAssocBtn = 210;
+constexpr int kIdParentValue = 209;
 constexpr int kIdSummary = 300;    // 300..302
 
 // Cabecera del panel + linea separadora, dentro del WM_PAINT propio.
@@ -98,6 +103,22 @@ HWND makeStatic(HWND parent, HINSTANCE inst, int id, const char* text,
     return hwnd;
 }
 
+// Enter en un campo: aplica el valor al momento (mismo camino que
+// EN_KILLFOCUS) y se traga el "ding" del EDIT, que no ve el \r.
+LRESULT CALLBACK fieldSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
+                                   LPARAM lParam, UINT_PTR uId,
+                                   DWORD_PTR dwRef) {
+    (void)uId;
+    (void)dwRef;
+    if (msg == WM_CHAR && wParam == '\r') {
+        SendMessageA(GetParent(hwnd), WM_COMMAND,
+                     MAKEWPARAM(GetDlgCtrlID(hwnd), EN_KILLFOCUS),
+                     reinterpret_cast<LPARAM>(hwnd));
+        return 0;
+    }
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
 HWND makeEdit(HWND parent, HINSTANCE inst, int id, const char* text,
               int x, int y, int w, int h) {
     HWND hwnd = CreateWindowExA(0, "EDIT", text,
@@ -107,16 +128,24 @@ HWND makeEdit(HWND parent, HINSTANCE inst, int id, const char* text,
                                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
                                 inst, nullptr);
     SendMessageA(hwnd, WM_SETFONT, reinterpret_cast<WPARAM>(theme::uiFont()), TRUE);
+    SetWindowSubclass(hwnd, fieldSubclassProc, 1, 0);
     return hwnd;
 }
 
 // Triangulito de cascada dentro del WM_PAINT del panel: derecha si esta
-// plegada, abajo si esta desplegada. rect es la zona de click; el
-// triangulo se dibuja un poco mas pequeno por comodidad visual.
+// plegada, abajo si esta desplegada. rect es la zona de click (amplia);
+// el triangulo dibujado es un 25% mas grande que la version anterior
+// (redondeado a pixeles enteros) para que se vea sin dominar la fila.
 void drawTriangle(HDC hdc, const int rect[4], bool open) {
-    const int l = rect[0] + 3, t = rect[1] + 4;
-    const int r = rect[2] - 3, b = rect[3] - 4;
-    if (r <= l || b <= t) return;
+    if (rect[2] <= rect[0] || rect[3] <= rect[1]) return;
+    const int cx = (rect[0] + rect[2]) / 2;
+    const int cy = (rect[1] + rect[3]) / 2;
+    int hw = ((rect[2] - rect[0] - 6) * 5 + 16) / 32;
+    int hh = ((rect[3] - rect[1] - 8) * 5 + 16) / 32;
+    if (hw < 1) hw = 1;
+    if (hh < 1) hh = 1;
+    const int l = cx - hw, r = cx + hw;
+    const int t = cy - hh, b = cy + hh;
     POINT poly[3];
     if (open) {
         poly[0] = POINT{l, t};
@@ -226,15 +255,18 @@ bool PlaceView::create(void* parentHwnd) {
     TreeView_SetTextColor(tree, theme::text());
     TreeView_SetLineColor(tree, theme::border());
     // Raiz unica por defecto: la dimension/escena del lugar.
-    root_ = addTreeRoot(tree, "dimension01");
+    root_ = addTreeRoot(tree, kRootName);
 
-    // Properties: estado + cascada Transform (Position/Rotation/Scale,
+    // Properties: Nombre + Transform (cascada Position/Rotation/Scale,
     // cada fila con su resumen "x, y, z" editable al lado y los tres
-    // ejes al desplegarla). Todo arranca desplegado; layoutProperties
+    // ejes al desplegarla) y al final la fila Parent (solo lectura).
+    // Transform arranca abierto y las filas plegadas; layoutProperties
     // coloca y muestra/oculta segun el estado de las cascadas.
     HWND hprop = static_cast<HWND>(properties_);
+    makeStatic(hprop, inst, kIdNameLabel, "Nombre",
+               12, kHeaderHeight + 8, 70, 20, theme::uiFont());
     makeStatic(hprop, inst, kIdStatus, "Sin objeto seleccionado",
-               12, kHeaderHeight + 8, kPropertiesWidth - 24, 20,
+               84, kHeaderHeight + 8, kPropertiesWidth - 96, 20,
                theme::uiFont());
     makeStatic(hprop, inst, kIdTransform, "Transform",
                34, 0, 200, 22, theme::uiHeaderFont());
@@ -259,22 +291,12 @@ bool PlaceView::create(void* parentHwnd) {
         }
     }
 
-    // ModelScript: script asociado al objeto seleccionado.
-    makeStatic(hprop, inst, 105, "Asociado a",
+    // Parent del objeto: la raiz del arbol. Solo lectura (de momento);
+    // el valor es un STATIC y va apagado en el pintado del panel.
+    makeStatic(hprop, inst, kIdParentLabel, "Parent",
                12, 0, 70, 20, theme::uiFont());
-    makeStatic(hprop, inst, kIdAssocValue, "-",
-               84, 0, 104, 20, theme::uiFont());
-    HWND assocBtn = CreateWindowExA(0, "BUTTON", "Cambiar...",
-                                    WS_CHILD | WS_VISIBLE | WS_TABSTOP |
-                                        BS_OWNERDRAW,
-                                    196, 0, 92, 24, hprop,
-                                    reinterpret_cast<HMENU>(
-                                        static_cast<INT_PTR>(kIdAssocBtn)),
-                                    inst, nullptr);
-    SendMessageA(assocBtn, WM_SETFONT,
-                 reinterpret_cast<WPARAM>(theme::uiFont()), TRUE);
-    ui::makeDarkButton(assocBtn);
-    EnableWindow(assocBtn, FALSE); // sin objeto seleccionado aun
+    makeStatic(hprop, inst, kIdParentValue, "-",
+               84, 0, kPropertiesWidth - 96, 20, theme::uiFont());
     layoutProperties();
 
     resize(rc.right, rc.bottom);
@@ -352,10 +374,9 @@ void PlaceView::showObject(const SceneObject& object) {
                           &fieldText_[6 + axis]);
     }
     updateSummaries();
-    if (HWND assoc = GetDlgItem(props, kIdAssocValue)) {
-        SetWindowTextA(assoc, object.script.empty() ? "-" : object.script.c_str());
+    if (HWND parent = GetDlgItem(props, kIdParentValue)) {
+        SetWindowTextA(parent, kRootName);
     }
-    if (HWND btn = GetDlgItem(props, kIdAssocBtn)) EnableWindow(btn, TRUE);
 }
 
 void PlaceView::showRoot() {
@@ -363,12 +384,13 @@ void PlaceView::showRoot() {
     if (!props) return;
     selectedName_.clear();
     if (HWND status = GetDlgItem(props, kIdStatus)) {
-        SetWindowTextA(status, "dimension01");
+        SetWindowTextA(status, kRootName);
     }
     setTransformIdentity(props, fieldText_);
     updateSummaries();
-    if (HWND assoc = GetDlgItem(props, kIdAssocValue)) SetWindowTextA(assoc, "-");
-    if (HWND btn = GetDlgItem(props, kIdAssocBtn)) EnableWindow(btn, FALSE);
+    if (HWND parent = GetDlgItem(props, kIdParentValue)) {
+        SetWindowTextA(parent, "-"); // la raiz no tiene padre
+    }
 }
 
 void PlaceView::showNoSelection() {
@@ -380,8 +402,7 @@ void PlaceView::showNoSelection() {
     }
     setTransformIdentity(props, fieldText_);
     updateSummaries();
-    if (HWND assoc = GetDlgItem(props, kIdAssocValue)) SetWindowTextA(assoc, "-");
-    if (HWND btn = GetDlgItem(props, kIdAssocBtn)) EnableWindow(btn, FALSE);
+    if (HWND parent = GetDlgItem(props, kIdParentValue)) SetWindowTextA(parent, "-");
 }
 
 void PlaceView::showMultiple(int count) {
@@ -400,8 +421,10 @@ void PlaceView::showMultiple(int count) {
         }
     }
     updateSummaries();
-    if (HWND assoc = GetDlgItem(props, kIdAssocValue)) SetWindowTextA(assoc, "-");
-    if (HWND btn = GetDlgItem(props, kIdAssocBtn)) EnableWindow(btn, FALSE);
+    // Todos los partes cuelgan de la raiz de momento.
+    if (HWND parent = GetDlgItem(props, kIdParentValue)) {
+        SetWindowTextA(parent, kRootName);
+    }
 }
 
 void PlaceView::syncTreeSelection(const std::string& primary) {
@@ -479,7 +502,8 @@ void PlaceView::layoutProperties() {
     };
 
     int y = kHeaderHeight + 8;
-    place(kIdStatus, 12, y, kPropertiesWidth - 24, 20, true);
+    place(kIdNameLabel, 12, y, 70, 20, true);
+    place(kIdStatus, 84, y, kPropertiesWidth - 96, 20, true);
     y += 26;
 
     triTransform_[0] = 12;
@@ -526,9 +550,8 @@ void PlaceView::layoutProperties() {
     }
 
     y += 2;
-    place(105, 12, y + 2, 70, 20, true);
-    place(kIdAssocValue, 84, y + 2, 104, 20, true);
-    place(kIdAssocBtn, 196, y, 92, 24, true);
+    place(kIdParentLabel, 12, y + 2, 70, 20, true);
+    place(kIdParentValue, 84, y + 2, kPropertiesWidth - 96, 20, true);
     InvalidateRect(props, nullptr, TRUE);
 }
 
@@ -624,12 +647,6 @@ long long __stdcall PlaceView::wndProc(void* hwndPtr, unsigned int msg,
             if (!self) break;
             const int id = LOWORD(wParam);
             const int code = HIWORD(wParam);
-            if (id == kIdAssocBtn && code == BN_CLICKED) {
-                if (!self->selectedName_.empty() && self->onAssocEdit_) {
-                    self->onAssocEdit_(self->selectedName_);
-                }
-                return 0;
-            }
             // Campo Transform editado: al perder el foco se aplica una
             // sola vez (no en cada tecla) y el dueno guarda la escena.
             if (id >= 200 && id <= 208 && code == EN_KILLFOCUS &&
@@ -703,12 +720,14 @@ long long __stdcall PlaceView::wndProc(void* hwndPtr, unsigned int msg,
         case WM_CTLCOLORSTATIC: {
             HDC hdc = reinterpret_cast<HDC>(wParam);
             SetBkMode(hdc, TRANSPARENT);
-            // El estado "Sin objeto seleccionado" (y los "-" de valores
-            // vacios) van apagados; el resto (y las etiquetas Transform)
-            // en color normal de texto.
+            // Los valores solo lectura (Nombre y Parent, STATIC) y los
+            // "-" de estados vacios van apagados; las etiquetas en
+            // color normal de texto.
+            const int ctlId = GetDlgCtrlID(reinterpret_cast<HWND>(lParam));
             char text[64]{};
             GetWindowTextA(reinterpret_cast<HWND>(lParam), text, 64);
-            const bool muted = std::strcmp(text, "Sin objeto seleccionado") == 0 ||
+            const bool muted = ctlId == kIdStatus ||
+                               ctlId == kIdParentValue ||
                                text[0] == '-';
             SetTextColor(hdc, muted ? theme::textDisabled() : theme::text());
             return reinterpret_cast<long long>(theme::backgroundBrush());

@@ -18,11 +18,11 @@ Ejecutable `.exe` con:
       (owner-draw), lista y cabeceras oscuras, barra de título oscura
 - [x] Aplicación de ventana sin consola (errores fatales en MessageBox)
 - [x] Tabla con márgenes, esquinas redondeadas y marco; tipografía Segoe UI
-      (13px, cabeceras semibold)
+      (12px, cabeceras semibold)
 - [x] Abrir un proyecto → vista 3D (Esc vuelve al panel)
 - [x] Icono del programa (logo.ico embebido via app.rc): ventana, barra de
        tareas y Alt+Tab
-- [x] Banda superior en dos filas (72px): barra de atajos estilo Roblox con
+- [x] Banda superior en dos filas (106px): barra de atajos estilo Roblox con
        el boton "Part" (anade un objeto 3D a la escena) y navbar compacta con
        PLACE / CODE / GUI (botones redondeados, oscuro, texto blanco);
        sin area vacia, la vista 3D ocupa el resto
@@ -39,11 +39,11 @@ Ejecutable `.exe` con:
 - [x] Objetos 3D "Part": escena propia (Scene/SceneObject con posicion,
        rotacion y escala), el boton Part inserta un cubo sobre la rejilla,
        Explorer anade y selecciona el nodo, Properties refresca el Transform
-- [x] ModelScript: asociar scripts del organizador con objetos de la escena:
-       fila "Asociado a" en PLACE Properties con boton "Cambiar..." que abre
-       un selector modal de scripts, el CODE muestra el objeto asociado en su
-       Properties, borrar/renombrar scripts remapea (y guarda) las
-       asociaciones, y todo persiste con la escena
+- [x] ModelScript: las escenas guardan la asociacion `script` de cada objeto,
+        CODE muestra el objeto asociado en su Properties, borrar/renombrar
+        scripts remapea (y guarda) las asociaciones y todo persiste con el
+        arranque; la edicion desde PLACE se retiro por ahora (fila "Parent"
+        solo lectura, sin boton "Cambiar...")
 - [x] Seleccion en el viewport de PLACE: click izquierdo selecciona el objeto
        bajo el puntero (rayo inverso contra la caja de cada Part), Ctrl+click
        anade o quita de la seleccion, click en vacio deselecciona todo y
@@ -72,7 +72,8 @@ Ejecutable `.exe` con:
 - [x] Properties en cascada: "Transform" se pliega con su triangulito y
         dentro Position/Rotation/Scale muestran un resumen "x, y, z"
         editable (separador coma, punto decimal) y los tres ejes X/Y/Z al
-        desplegarlas; cada cascada tiene su triangulo y todo arranca abierto
+        desplegarlas; cada cascada tiene su triangulo y arranca con
+        Transform desplegado y Position/Rotation/Scale plegadas
 - [x] Proyectos nuevos arrancan con un `basepart` (losa de 20x1x20 en el
         suelo: escala `20 1 20`, posicion `0 -0.5 0`) en vez de la escena
         vacia
@@ -83,6 +84,17 @@ Ejecutable `.exe` con:
 - [x] Cámara libre: WASD para moverse, click derecho para mirar, scroll para
        acercar/alejar
 - [x] Rejilla de referencia en el suelo (para percibir el movimiento)
+- [x] Arrastre del cuerpo de un objeto: pulsar sobre un Part y arrastrarlo
+        solo lo mueve mientras el puntero siga sobre OTRO objeto de la
+        escena (en el vacio se congela), con log del arrastre, cancelacion
+        con ESC durante el movimiento y toggle con Ctrl; el marquee solo
+        arranca desde el vacio
+- [x] Mediciones de la banda: tarjetas de herramientas de 64x70 con el
+        icono al 133%, triangulos de las cascadas al 125% y fuente de la
+        interfaz a 12px (banda superior de 106px)
+- [x] Properties con fila "Nombre" (solo lectura) y fila "Parent" debajo
+        del Transform (hoy `dimension01`, valor atenuado en los campos
+        estaticos)
 
 ## Fase 2 — Render básico
 

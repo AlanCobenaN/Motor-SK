@@ -21,7 +21,6 @@
 #include "ui/code_view.h"
 #include "ui/place_view.h"
 #include "ui/projects_panel.h"
-#include "ui/script_picker.h"
 #include "ui/workspace_tabs.h"
 
 namespace {
@@ -232,22 +231,6 @@ int main(int argc, char** argv) {
         }
     });
 
-    // ModelScript: boton "Cambiar..." de PLACE -> selector de scripts;
-    // la escena guarda el objeto.script y se escribe en disco.
-    place.setOnAssocEdit([&](const std::string& objectName) {
-        sk::SceneObject* object = scene.findByName(objectName);
-        if (!object) return;
-        std::string rel;
-        const HWND owner = static_cast<HWND>(window.nativeHandle());
-        if (!sk::ui::pickScript(owner, active, object->script, rel)) return;
-        object->script = rel;
-        saveScene();
-        place.showObject(*object);   // refresca el Asociado a en PLACE
-        code.refreshProperties();
-        SK_INFO("Asociacion de %s: %s", objectName.c_str(),
-                rel.empty() ? "(ninguno)" : rel.c_str());
-    });
-
     // Properties Transform editable: al perder el foco un campo se
     // aplica al objeto, se guarda la escena y se reescriben los campos
     // con el formato normalizado.
@@ -328,6 +311,19 @@ int main(int argc, char** argv) {
 
     // Gizmo de herramientas: arrastre activo + eje bajo el puntero.
     sk::GizmoDrag gizmoDrag;
+
+    // Arrastre de objeto: mantener pulsado el cuerpo de un parte (sin tocar
+    // un asa del gizmo) y arrastrarlo con el puntero por el plano de camara.
+    struct ObjDragStart {
+        std::string name;
+        sk::Vec3 pos;
+    };
+    bool objDragActive = false;
+    std::vector<ObjDragStart> objDragStart;
+    sk::Vec3 objDragPlaneC{};
+    sk::Vec3 objDragPlaneN{0.0f, 0.0f, 1.0f};
+    std::string pressHit; // objeto bajo el punto de presion (o vacio)
+    bool pressCtrl = false;
     int hoverAxis = -1;
     // Registro "gizmo eje X punta (x,y)": una sola vez por punta, para
     // que las pruebas sepan donde pulsar sin repetir el log en cada frame.
@@ -398,6 +394,18 @@ int main(int argc, char** argv) {
             gizmoDrag.active = false;
             lastTipsTool = -1; // las puntas vuelven a su sitio
             SK_INFO("gizmo cancelado");
+            applySelection(selection, primary);
+        } else if (escDown && !escWasDown && objDragActive) {
+            // Revierte el arrastre del objeto a sus posiciones de inicio.
+            for (const ObjDragStart& start : objDragStart) {
+                if (sk::SceneObject* object = scene.findByName(start.name)) {
+                    object->position = start.pos;
+                }
+            }
+            objDragActive = false;
+            objDragStart.clear();
+            dragPending = false;
+            SK_INFO("drag cancelado");
             applySelection(selection, primary);
         } else if (escDown && !escWasDown && (dragPending || dragActive)) {
             dragPending = false;
@@ -491,7 +499,8 @@ int main(int argc, char** argv) {
         // Eje bajo el puntero (solo con el raton en el viewport y sin
         // arrastre en curso). El hit test ignora los colores, asi que las
         // lineas de sondeo se construyen sin resaltar.
-        if (gizmoReady && !gizmoDrag.active && inViewport(window.mousePos())) {
+        if (gizmoReady && !gizmoDrag.active && !objDragActive &&
+            inViewport(window.mousePos())) {
             const std::vector<sk::GizmoLine> probe =
                 sk::buildGizmo(tool, gizmoOrigin, gizmoScaleMax, gizmoViewDir, -1);
             hoverAxis = sk::hitTestGizmo(probe, window.mousePos(), viewProj, vpW, vpH);
@@ -501,7 +510,7 @@ int main(int argc, char** argv) {
 
         // Puntas de los ejes al cambiar de herramienta o de objeto
         // primario (o tras un arrastre, que deja la marca sin marcar).
-        if (gizmoReady && !gizmoDrag.active &&
+        if (gizmoReady && !gizmoDrag.active && !objDragActive &&
             (tool != lastTipsTool || primary != lastTipsPrimary)) {
             sk::Vec3 ndc;
             int px[3] = {-1, -1, -1};
@@ -550,6 +559,56 @@ int main(int argc, char** argv) {
                 dragPending = true;
                 dragActive = false;
                 dragStart = *pressed;
+                // Cuerpo de un parte bajo el puntero: candidato a arrastre
+                // de objeto (se confirma al superar el umbral de arrastre).
+                pressCtrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+                pressHit.clear();
+                if (!pressCtrl) {
+                    pressHit = sk::pickObject(
+                        scene, sk::rayFromCamera(camera, aspect, 60.0f,
+                                                 *pressed, vpW, vpH));
+                }
+            }
+        }
+
+        // Arrastre del objeto: el delta entre el punto de presion y el
+        // puntero (proyectados en el plano de camara) se aplica a toda la
+        // seleccion SOLO si el rayo alcanza a otro parte distinto de los
+        // arrastrados: en el vacio el objeto se queda congelado donde
+        // estaba (asi se "coloca" arrastrandolo sobre otros).
+        if (objDragActive) {
+            const sk::Ray ray0 = sk::rayFromCamera(
+                camera, aspect, 60.0f, dragStart, vpW, vpH);
+            const sk::Ray ray1 = sk::rayFromCamera(
+                camera, aspect, 60.0f, window.mousePos(), vpW, vpH);
+            std::vector<std::string> dragged;
+            dragged.reserve(objDragStart.size());
+            for (const ObjDragStart& start : objDragStart) {
+                dragged.push_back(start.name);
+            }
+            if (!sk::pickObjectExcept(scene, ray1, dragged).empty()) {
+                auto planePoint = [&](const sk::Ray& ray) {
+                    const float denom = sk::dot(ray.dir, objDragPlaneN);
+                    float t = 0.0f;
+                    if (std::fabs(denom) > 1e-6f) {
+                        t = sk::dot(objDragPlaneC - ray.origin,
+                                    objDragPlaneN) / denom;
+                    }
+                    return ray.origin + ray.dir * t;
+                };
+                const sk::Vec3 delta = planePoint(ray1) - planePoint(ray0);
+                for (const ObjDragStart& start : objDragStart) {
+                    if (sk::SceneObject* object =
+                            scene.findByName(start.name)) {
+                        object->position = start.pos + delta;
+                    }
+                }
+                if (selection.size() == 1) {
+                    if (const sk::SceneObject* object =
+                            scene.findByName(selection.front())) {
+                        place.showObject(*object); // Transform al dia
+                    }
+                }
             }
         }
 
@@ -590,7 +649,8 @@ int main(int argc, char** argv) {
         }
 
         // Cursor de cruz de mover sobre el gizmo o mientras se arrastra.
-        const bool wantMoveCursor = gizmoDrag.active || hoverAxis >= 0;
+        const bool wantMoveCursor =
+            gizmoDrag.active || objDragActive || hoverAxis >= 0;
         if (wantMoveCursor) {
             SetCursor(LoadCursorA(nullptr, IDC_SIZEALL));
             cursorForced = true;
@@ -599,20 +659,61 @@ int main(int argc, char** argv) {
             cursorForced = false;
         }
 
-        if (dragPending && !dragActive) {
+        if (dragPending && !dragActive && !objDragActive) {
             const int thX = GetSystemMetrics(SM_CXDRAG);
             const int thY = GetSystemMetrics(SM_CYDRAG);
             const sk::Vec2 pos = window.mousePos();
             if (std::abs(pos.x - dragStart.x) > thX ||
                 std::abs(pos.y - dragStart.y) > thY) {
-                dragActive = true;
-                SK_INFO("marquee (%d,%d)-(%d,%d)",
-                        static_cast<int>(dragStart.x),
-                        static_cast<int>(dragStart.y),
-                        static_cast<int>(pos.x), static_cast<int>(pos.y));
+                if (!pressHit.empty()) {
+                    // Es el cuerpo de un parte: arrastre de objeto en vez
+                    // de marquee (si no estaba seleccionado, pasa a serlo).
+                    if (std::find(selection.begin(), selection.end(),
+                                  pressHit) == selection.end()) {
+                        applySelection({pressHit}, pressHit);
+                    }
+                    objDragActive = true;
+                    objDragStart.clear();
+                    for (const std::string& name : selection) {
+                        if (const sk::SceneObject* object =
+                                scene.findByName(name)) {
+                            objDragStart.push_back({name, object->position});
+                        }
+                    }
+                    const sk::Ray ray0 = sk::rayFromCamera(
+                        camera, aspect, 60.0f, dragStart, vpW, vpH);
+                    const sk::SceneObject* hitObj = scene.findByName(pressHit);
+                    objDragPlaneC = hitObj ? hitObj->position : gizmoOrigin;
+                    objDragPlaneN = sk::normalize(ray0.dir);
+                    dragPending = false;
+                    SK_INFO("drag %s: arrastre", pressHit.c_str());
+                } else {
+                    dragActive = true;
+                    SK_INFO("marquee (%d,%d)-(%d,%d)",
+                            static_cast<int>(dragStart.x),
+                            static_cast<int>(dragStart.y),
+                            static_cast<int>(pos.x), static_cast<int>(pos.y));
+                }
             }
         }
-        if (released && gizmoDrag.active) {
+        if (released && objDragActive) {
+            // Fin del arrastre: registrar el cambio y guardar.
+            for (const ObjDragStart& start : objDragStart) {
+                const sk::SceneObject* object = scene.findByName(start.name);
+                if (!object) continue;
+                SK_INFO("drag %s: pos (%.2f,%.2f,%.2f)->(%.2f,%.2f,%.2f)",
+                        start.name.c_str(), start.pos.x, start.pos.y,
+                        start.pos.z, object->position.x, object->position.y,
+                        object->position.z);
+            }
+            objDragActive = false;
+            objDragStart.clear();
+            pressHit.clear();
+            dragPending = false;
+            lastTipsTool = -1; // las puntas del gizmo siguen al objeto
+            saveScene();
+            applySelection(selection, primary);
+        } else if (released && gizmoDrag.active) {
             // Fin del arrastre: registrar el cambio, guardar y refrescar.
             for (const sk::GizmoSnapshot& snap : gizmoDrag.snapshots) {
                 const sk::SceneObject* object = scene.findByName(snap.name);
