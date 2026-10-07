@@ -32,6 +32,13 @@ std::string pickObject(const Scene& scene, const Ray& ray);
 std::string pickObjectExcept(const Scene& scene, const Ray& ray,
                              const std::vector<std::string>& ignore);
 
+// Igual que pickObjectExcept pero devuelve tambien el punto de impacto
+// en espacio mundo (lo usa el arrastre de cuerpo para apilar el objeto
+// sobre la cara superior del destino). Devuelve false si no hay hit.
+bool pickObjectHit(const Scene& scene, const Ray& ray,
+                   const std::vector<std::string>& ignore, std::string& nameOut,
+                   Vec3& pointOut);
+
 // Objetos cuya caja proyectada intersecta el rectangulo (x0,y0)-(x1,y1)
 // en coordenadas de cliente. x0<x1, y0<y1.
 std::vector<std::string> selectInRect(const Scene& scene, const Mat4& viewProj,

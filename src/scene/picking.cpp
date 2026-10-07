@@ -97,10 +97,19 @@ std::string pickObject(const Scene& scene, const Ray& ray) {
 
 std::string pickObjectExcept(const Scene& scene, const Ray& ray,
                              const std::vector<std::string>& ignore) {
+    std::string name;
+    Vec3 point;
+    pickObjectHit(scene, ray, ignore, name, point);
+    return name;
+}
+
+bool pickObjectHit(const Scene& scene, const Ray& ray,
+                   const std::vector<std::string>& ignore, std::string& nameOut,
+                   Vec3& pointOut) {
     // t es del espacio local de cada objeto (depende de su escala), asi
     // que se compara la distancia real en mundo al punto de impacto.
     float bestT = FLT_MAX;
-    std::string best;
+    bool found = false;
     for (const SceneObject& object : scene.objects()) {
         bool skipped = false;
         for (const std::string& name : ignore) {
@@ -120,10 +129,12 @@ std::string pickObjectExcept(const Scene& scene, const Ray& ray,
         const float worldT = length(hit - ray.origin);
         if (worldT < bestT) {
             bestT = worldT;
-            best = object.name;
+            nameOut = object.name;
+            pointOut = hit;
+            found = true;
         }
     }
-    return best;
+    return found;
 }
 
 std::vector<std::string> selectInRect(const Scene& scene, const Mat4& viewProj,

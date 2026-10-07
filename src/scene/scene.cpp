@@ -45,6 +45,16 @@ SceneObject* Scene::findByName(const std::string& name) {
         static_cast<const Scene*>(this)->findByName(name));
 }
 
+bool Scene::renameObject(const std::string& oldName,
+                         const std::string& newName) {
+    if (newName.empty() || oldName == newName) return false;
+    if (findByName(newName)) return false;
+    SceneObject* object = findByName(oldName);
+    if (!object) return false;
+    object->name = newName;
+    return true;
+}
+
 namespace {
 
 // "  a b " -> "a b" (recorta espacios por ambos lados).

@@ -34,6 +34,12 @@ public:
 
     const SceneObject* findByName(const std::string& name) const;
     SceneObject* findByName(const std::string& name);
+
+    // Renombra un objeto (transform y script intactos). Requiere que el
+    // origen exista y que el destino este vacio: devuelve false sin
+    // tocar nada en caso contrario.
+    bool renameObject(const std::string& oldName, const std::string& newName);
+
     const std::vector<SceneObject>& objects() const { return objects_; }
     std::vector<SceneObject>& objects() { return objects_; }
 

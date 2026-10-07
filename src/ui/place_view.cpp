@@ -257,17 +257,19 @@ bool PlaceView::create(void* parentHwnd) {
     // Raiz unica por defecto: la dimension/escena del lugar.
     root_ = addTreeRoot(tree, kRootName);
 
-    // Properties: Nombre + Transform (cascada Position/Rotation/Scale,
-    // cada fila con su resumen "x, y, z" editable al lado y los tres
-    // ejes al desplegarla) y al final la fila Parent (solo lectura).
-    // Transform arranca abierto y las filas plegadas; layoutProperties
-    // coloca y muestra/oculta segun el estado de las cascadas.
+    // Properties: Nombre (EDIT editable solo con un parte seleccionado)
+    // + fila Parent (solo lectura) + Transform (cascada
+    // Position/Rotation/Scale, cada fila con su resumen "x, y, z"
+    // editable al lado y los tres ejes al desplegarla). Transform
+    // arranca abierto y las filas plegadas; layoutProperties coloca y
+    // muestra/oculta segun el estado de las cascadas.
     HWND hprop = static_cast<HWND>(properties_);
     makeStatic(hprop, inst, kIdNameLabel, "Nombre",
                12, kHeaderHeight + 8, 70, 20, theme::uiFont());
-    makeStatic(hprop, inst, kIdStatus, "Sin objeto seleccionado",
-               84, kHeaderHeight + 8, kPropertiesWidth - 96, 20,
-               theme::uiFont());
+    HWND nameField =
+        makeEdit(hprop, inst, kIdStatus, "Sin objeto seleccionado",
+                 84, kHeaderHeight + 8, kPropertiesWidth - 96, 20);
+    EnableWindow(nameField, FALSE); // hasta que haya un objeto seleccionado
     makeStatic(hprop, inst, kIdTransform, "Transform",
                34, 0, 200, 22, theme::uiHeaderFont());
 
@@ -358,12 +360,40 @@ void PlaceView::clearObjects() {
     TreeView_Select(tree, static_cast<HTREEITEM>(root_), TVGN_CARET);
 }
 
+void PlaceView::renameTreeItem(const std::string& oldName,
+                               const std::string& newName) {
+    if (!tree_ || !root_) return;
+    HWND tree = static_cast<HWND>(tree_);
+    HTREEITEM child = TreeView_GetChild(tree, static_cast<HTREEITEM>(root_));
+    while (child) {
+        char text[64]{};
+        TVITEMA tvi{};
+        tvi.hItem = child;
+        tvi.mask = TVIF_TEXT;
+        tvi.pszText = text;
+        tvi.cchTextMax = static_cast<int>(sizeof(text));
+        TreeView_GetItem(tree, &tvi);
+        if (oldName == text) {
+            char label[64]{};
+            lstrcpynA(label, newName.c_str(), 64);
+            TVITEMA set{};
+            set.hItem = child;
+            set.mask = TVIF_TEXT;
+            set.pszText = label;
+            TreeView_SetItem(tree, &set);
+            return;
+        }
+        child = TreeView_GetNextSibling(tree, child);
+    }
+}
+
 void PlaceView::showObject(const SceneObject& object) {
     HWND props = static_cast<HWND>(properties_);
     if (!props) return;
     selectedName_ = object.name;
     if (HWND status = GetDlgItem(props, kIdStatus)) {
         SetWindowTextA(status, object.name.c_str());
+        EnableWindow(status, TRUE); // hay objeto: el nombre es editable
     }
     for (int axis = 0; axis < 3; ++axis) {
         setTransformField(props, 200 + axis, (&object.position.x)[axis],
@@ -385,6 +415,7 @@ void PlaceView::showRoot() {
     selectedName_.clear();
     if (HWND status = GetDlgItem(props, kIdStatus)) {
         SetWindowTextA(status, kRootName);
+        EnableWindow(status, FALSE); // la raiz no se renombra aqui
     }
     setTransformIdentity(props, fieldText_);
     updateSummaries();
@@ -399,6 +430,7 @@ void PlaceView::showNoSelection() {
     selectedName_.clear();
     if (HWND status = GetDlgItem(props, kIdStatus)) {
         SetWindowTextA(status, "Sin objeto seleccionado");
+        EnableWindow(status, FALSE);
     }
     setTransformIdentity(props, fieldText_);
     updateSummaries();
@@ -411,7 +443,10 @@ void PlaceView::showMultiple(int count) {
     selectedName_.clear();
     char text[64]{};
     snprintf(text, sizeof(text), "-%d objetos seleccionados-", count);
-    if (HWND status = GetDlgItem(props, kIdStatus)) SetWindowTextA(status, text);
+    if (HWND status = GetDlgItem(props, kIdStatus)) {
+        SetWindowTextA(status, text);
+        EnableWindow(status, FALSE); // multi: nada que renombrar
+    }
     for (int row = 0; row < 3; ++row) {
         for (int axis = 0; axis < 3; ++axis) {
             if (HWND field = GetDlgItem(props, 200 + row * 3 + axis)) {
@@ -506,6 +541,11 @@ void PlaceView::layoutProperties() {
     place(kIdStatus, 84, y, kPropertiesWidth - 96, 20, true);
     y += 26;
 
+    // Parent entre Nombre y Transform: solo lectura, valor apagado.
+    place(kIdParentLabel, 12, y + 2, 70, 20, true);
+    place(kIdParentValue, 84, y + 2, kPropertiesWidth - 96, 20, true);
+    y += 26;
+
     triTransform_[0] = 12;
     triTransform_[1] = y;
     triTransform_[2] = 30;
@@ -548,10 +588,6 @@ void PlaceView::layoutProperties() {
             y += 24;
         }
     }
-
-    y += 2;
-    place(kIdParentLabel, 12, y + 2, 70, 20, true);
-    place(kIdParentValue, 84, y + 2, kPropertiesWidth - 96, 20, true);
     InvalidateRect(props, nullptr, TRUE);
 }
 
@@ -647,6 +683,38 @@ long long __stdcall PlaceView::wndProc(void* hwndPtr, unsigned int msg,
             if (!self) break;
             const int id = LOWORD(wParam);
             const int code = HIWORD(wParam);
+            // Campo Nombre (id 100) editado: validar y pedirle al dueno
+            // que renombre; si rechaza, se restaura el texto anterior.
+            if (id == kIdStatus && code == EN_KILLFOCUS) {
+                HWND field =
+                    GetDlgItem(static_cast<HWND>(self->properties_), id);
+                if (!field || self->selectedName_.empty()) return 0;
+                char text[96]{};
+                GetWindowTextA(field, text, static_cast<int>(sizeof(text)));
+                // Recorte de espacios y caracteres invalidos en nombre
+                // de parte: no vacio, sin ':' ni controles.
+                char* begin = text;
+                while (*begin == ' ' || *begin == '\t') ++begin;
+                char* end = begin + std::strlen(begin);
+                while (end > begin && (end[-1] == ' ' || end[-1] == '\t')) --end;
+                *end = '\0';
+                bool ok = *begin != '\0';
+                for (const char* p = begin; ok && *p; ++p) {
+                    if (*p == ':' || static_cast<unsigned char>(*p) < 32) {
+                        ok = false;
+                    }
+                }
+                if (ok && std::strcmp(begin, self->selectedName_.c_str()) == 0) {
+                    return 0; // sin cambios
+                }
+                if (ok && self->onNameEdited_) {
+                    ok = self->onNameEdited_(self->selectedName_, begin);
+                } else if (ok) {
+                    ok = false; // sin dueno: nada que renombrar
+                }
+                if (!ok) SetWindowTextA(field, self->selectedName_.c_str());
+                return 0;
+            }
             // Campo Transform editado: al perder el foco se aplica una
             // sola vez (no en cada tecla) y el dueno guarda la escena.
             if (id >= 200 && id <= 208 && code == EN_KILLFOCUS &&
@@ -714,21 +782,24 @@ long long __stdcall PlaceView::wndProc(void* hwndPtr, unsigned int msg,
             HDC hdc = reinterpret_cast<HDC>(wParam);
             SetBkMode(hdc, OPAQUE);
             SetBkColor(hdc, theme::listBackground());
-            SetTextColor(hdc, theme::text());
+            // El campo Nombre deshabilitado (raiz / sin seleccion /
+            // multi) va apagado; el resto de los EDIT en color normal.
+            const HWND ctl = reinterpret_cast<HWND>(lParam);
+            const bool muted =
+                GetDlgCtrlID(ctl) == kIdStatus && !IsWindowEnabled(ctl);
+            SetTextColor(hdc, muted ? theme::textDisabled() : theme::text());
             return reinterpret_cast<long long>(theme::listBackgroundBrush());
         }
         case WM_CTLCOLORSTATIC: {
             HDC hdc = reinterpret_cast<HDC>(wParam);
             SetBkMode(hdc, TRANSPARENT);
-            // Los valores solo lectura (Nombre y Parent, STATIC) y los
-            // "-" de estados vacios van apagados; las etiquetas en
-            // color normal de texto.
+            // Los valores solo lectura (Parent, STATIC) y los "-" de
+            // estados vacios van apagados; las etiquetas en color
+            // normal de texto.
             const int ctlId = GetDlgCtrlID(reinterpret_cast<HWND>(lParam));
             char text[64]{};
             GetWindowTextA(reinterpret_cast<HWND>(lParam), text, 64);
-            const bool muted = ctlId == kIdStatus ||
-                               ctlId == kIdParentValue ||
-                               text[0] == '-';
+            const bool muted = ctlId == kIdParentValue || text[0] == '-';
             SetTextColor(hdc, muted ? theme::textDisabled() : theme::text());
             return reinterpret_cast<long long>(theme::backgroundBrush());
         }

@@ -8,16 +8,18 @@
 
 namespace sk {
 
-// Paneles laterales de la division PLACE: Properties (Nombre, Transform
-// y la fila Parent) a la izquierda y el Explorer (arbol con la raiz
-// dimension01) a la derecha, sobre la vista 3D. Son dos ventanas hijas
-// de la principal (con WS_CLIPCHILDREN para que el present no las tape).
+// Paneles laterales de la division PLACE: Properties (Nombre editable,
+// fila Parent de solo lectura y Transform) a la izquierda y el Explorer
+// (arbol con la raiz dimension01) a la derecha, sobre la vista 3D. Son
+// dos ventanas hijas de la principal (con WS_CLIPCHILDREN para que el
+// present no las tape).
 //
 // El Explorer arranca con una unica raiz "dimension01" (la escena del
 // lugar) y recibe los objetos anadidos con addObject(). Properties
-// muestra el Nombre del objeto seleccionado, su Parent (la raiz
-// dimension01; solo lectura de momento, pintado apagado) y el Transform
-// en cascada: "Transform" se pliega y dentro Position/Rotation/Scale
+// muestra el Nombre del objeto seleccionado en un campo editable (solo
+// habilitado con un parte seleccionado), su Parent (la raiz
+// dimension01; solo lectura, pintado apagado) y el Transform en
+// cascada: "Transform" se pliega y dentro Position/Rotation/Scale
 // muestran un resumen "x, y, z" editable y los tres ejes al
 // desplegarlas.
 class PlaceView {
@@ -69,6 +71,19 @@ public:
         onTransformEdited_ = std::move(cb);
     }
 
+    // Campo Nombre (id 100) editado: el usuario tecleo un nombre y
+    // perdio el foco o pulso Enter. El dueno valida, renombra el objeto
+    // y guarda; si devuelve false el panel restaura el texto anterior.
+    void setOnNameEdited(
+        std::function<bool(const std::string& oldName,
+                           const std::string& newName)> cb) {
+        onNameEdited_ = std::move(cb);
+    }
+
+    // Renombra el nodo del Explorer (oldName -> newName) sin disparar
+    // onSelectionChanged: el caret sigue en el mismo nodo.
+    void renameTreeItem(const std::string& oldName, const std::string& newName);
+
 private:
     static long long __stdcall wndProc(void* hwnd, unsigned int msg,
                                        unsigned long long wParam, long long lParam);
@@ -99,6 +114,7 @@ private:
     std::string summaryText_[3];
     std::function<void(const std::string&)> onSelectionChanged_;
     std::function<void(const std::string&, int, float)> onTransformEdited_;
+    std::function<bool(const std::string&, const std::string&)> onNameEdited_;
 };
 
 } // namespace sk

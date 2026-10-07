@@ -252,6 +252,28 @@ int main(int argc, char** argv) {
                 kAxes[axis], value);
     });
 
+    // Properties Nombre editable: al perder el foco o con Enter se
+    // renombra el objeto en la escena, en el Explorer y en los paneles.
+    // Nombre duplicado/vacio lo rechaza la escena y el panel restaura
+    // el texto anterior.
+    place.setOnNameEdited([&](const std::string& oldName,
+                              const std::string& newName) {
+        if (!scene.renameObject(oldName, newName)) return false;
+        if (primary == oldName) primary = newName;
+        for (std::string& name : selection) {
+            if (name == oldName) name = newName;
+        }
+        place.renameTreeItem(oldName, newName);
+        saveScene();
+        SK_INFO("Part renombrado: %s -> %s", oldName.c_str(),
+                newName.c_str());
+        if (const sk::SceneObject* object = scene.findByName(newName)) {
+            place.showObject(*object); // campo y selectedName_ al dia
+        }
+        code.refreshProperties(); // "Asociado a" en CODE
+        return true;
+    });
+
     // CODE: el panel Properties consulta el objeto asociado a un script.
     code.setOnQueryAssoc([&](const std::string& rel) -> std::string {
         for (const sk::SceneObject& object : scene.objects()) {
@@ -525,6 +547,22 @@ int main(int argc, char** argv) {
             }
             SK_INFO("gizmo puntas X(%d,%d) Y(%d,%d) Z(%d,%d)", px[0], py[0],
                     px[1], py[1], px[2], py[2]);
+            if (tool == 1 || tool == 2) {
+                // Mangos negativos (3..5), en un registro aparte para no
+                // mezclarlos con el recuento de "gizmo puntas".
+                int nx[3] = {-1, -1, -1};
+                int ny[3] = {-1, -1, -1};
+                for (int axis = 0; axis < 3; ++axis) {
+                    const sk::Vec3 tip = sk::gizmoHandlePoint(
+                        tool, axis + 3, gizmoOrigin, gizmoScaleMax);
+                    if (sk::transformPoint(viewProj, tip, ndc)) {
+                        nx[axis] = static_cast<int>((ndc.x * 0.5f + 0.5f) * vpW);
+                        ny[axis] = static_cast<int>((ndc.y * 0.5f + 0.5f) * vpH);
+                    }
+                }
+                SK_INFO("puntas neg X(%d,%d) Y(%d,%d) Z(%d,%d)", nx[0], ny[0],
+                        nx[1], ny[1], nx[2], ny[2]);
+            }
             lastTipsTool = tool;
             lastTipsPrimary = primary;
             lastHoverAxis = -1; // que el hover vuelva a registrar
@@ -551,8 +589,13 @@ int main(int argc, char** argv) {
                     // El arrastre del gizmo sustituye al marquee.
                     dragPending = false;
                     dragActive = false;
-                    SK_INFO("gizmo %s: arrastre eje %c", kToolNames[tool],
-                            "XYZ"[pressAxis]);
+                    if (pressAxis < 3) {
+                        SK_INFO("gizmo %s: arrastre eje %c", kToolNames[tool],
+                                "XYZ"[pressAxis]);
+                    } else {
+                        SK_INFO("gizmo %s: arrastre eje -%c", kToolNames[tool],
+                                "XYZ"[pressAxis - 3]);
+                    }
                 }
             }
             if (!startedGizmo && !gizmoDrag.active) {
@@ -571,11 +614,12 @@ int main(int argc, char** argv) {
             }
         }
 
-        // Arrastre del objeto: el delta entre el punto de presion y el
-        // puntero (proyectados en el plano de camara) se aplica a toda la
-        // seleccion SOLO si el rayo alcanza a otro parte distinto de los
-        // arrastrados: en el vacio el objeto se queda congelado donde
-        // estaba (asi se "coloca" arrastrandolo sobre otros).
+        // Arrastre del objeto: SOLO se mueve si el rayo alcanza a otro
+        // parte distinto de los arrastrados (en el vacio se queda
+        // congelado). Con objetivo bajo el puntero el objeto arrastrado
+        // se coloca ENCIMA de su cara superior, centrado en el punto de
+        // golpe y limitado a su huella; el resto de la seleccion sigue
+        // el mismo delta desde sus posiciones de inicio.
         if (objDragActive) {
             const sk::Ray ray0 = sk::rayFromCamera(
                 camera, aspect, 60.0f, dragStart, vpW, vpH);
@@ -586,17 +630,79 @@ int main(int argc, char** argv) {
             for (const ObjDragStart& start : objDragStart) {
                 dragged.push_back(start.name);
             }
-            if (!sk::pickObjectExcept(scene, ray1, dragged).empty()) {
-                auto planePoint = [&](const sk::Ray& ray) {
-                    const float denom = sk::dot(ray.dir, objDragPlaneN);
-                    float t = 0.0f;
-                    if (std::fabs(denom) > 1e-6f) {
-                        t = sk::dot(objDragPlaneC - ray.origin,
-                                    objDragPlaneN) / denom;
+            std::string targetName;
+            sk::Vec3 targetHit{};
+            if (sk::pickObjectHit(scene, ray1, dragged, targetName, targetHit)) {
+                // AABB en mundo de un objeto (8 esquinas del modelMatrix).
+                auto worldAABB = [&](const sk::SceneObject& object,
+                                     sk::Vec3& lo, sk::Vec3& hi) {
+                    const sk::Mat4 m = object.modelMatrix();
+                    lo = {1e9f, 1e9f, 1e9f};
+                    hi = {-1e9f, -1e9f, -1e9f};
+                    for (int c = 0; c < 8; ++c) {
+                        const sk::Vec3 local{(c & 1) ? 0.5f : -0.5f,
+                                             (c & 2) ? 0.5f : -0.5f,
+                                             (c & 4) ? 0.5f : -0.5f};
+                        sk::Vec3 w;
+                        if (!sk::transformPoint(m, local, w)) continue;
+                        lo.x = std::fmin(lo.x, w.x);
+                        lo.y = std::fmin(lo.y, w.y);
+                        lo.z = std::fmin(lo.z, w.z);
+                        hi.x = std::fmax(hi.x, w.x);
+                        hi.y = std::fmax(hi.y, w.y);
+                        hi.z = std::fmax(hi.z, w.z);
                     }
-                    return ray.origin + ray.dir * t;
                 };
-                const sk::Vec3 delta = planePoint(ray1) - planePoint(ray0);
+                // Media caja del arrastrado (escala + rotacion, sin
+                // traslacion) para saber cuantos huecos ocupa.
+                auto worldHalf = [&](const sk::SceneObject& object) {
+                    sk::SceneObject tmp = object;
+                    tmp.position = {};
+                    sk::Vec3 lo, hi;
+                    worldAABB(tmp, lo, hi);
+                    return sk::Vec3{std::fmax(std::fabs(lo.x), std::fabs(hi.x)),
+                                    std::fmax(std::fabs(lo.y), std::fabs(hi.y)),
+                                    std::fmax(std::fabs(lo.z), std::fabs(hi.z))};
+                };
+
+                sk::Vec3 delta{};
+                const sk::SceneObject* target = scene.findByName(targetName);
+                const sk::SceneObject* lead = scene.findByName(pressHit);
+                const ObjDragStart* leadStart = nullptr;
+                for (const ObjDragStart& start : objDragStart) {
+                    if (start.name == pressHit) leadStart = &start;
+                }
+                if (target && lead && leadStart) {
+                    sk::Vec3 tLo, tHi;
+                    worldAABB(*target, tLo, tHi);
+                    const sk::Vec3 half = worldHalf(*lead);
+                    const float loX = tLo.x + half.x;
+                    const float hiX = tHi.x - half.x;
+                    const float loZ = tLo.z + half.z;
+                    const float hiZ = tHi.z - half.z;
+                    // Centrado en el golpe, dentro de la huella; si no
+                    // cabe, centrado en el destino.
+                    const float wx = (loX <= hiX)
+                        ? std::fmax(loX, std::fmin(hiX, targetHit.x))
+                        : 0.5f * (tLo.x + tHi.x);
+                    const float wz = (loZ <= hiZ)
+                        ? std::fmax(loZ, std::fmin(hiZ, targetHit.z))
+                        : 0.5f * (tLo.z + tHi.z);
+                    // Siempre encima: apoyado en la cara superior.
+                    const sk::Vec3 wanted{wx, tHi.y + half.y, wz};
+                    delta = wanted - leadStart->pos;
+                } else {
+                    auto planePoint = [&](const sk::Ray& ray) {
+                        const float denom = sk::dot(ray.dir, objDragPlaneN);
+                        float t = 0.0f;
+                        if (std::fabs(denom) > 1e-6f) {
+                            t = sk::dot(objDragPlaneC - ray.origin,
+                                        objDragPlaneN) / denom;
+                        }
+                        return ray.origin + ray.dir * t;
+                    };
+                    delta = planePoint(ray1) - planePoint(ray0);
+                }
                 for (const ObjDragStart& start : objDragStart) {
                     if (sk::SceneObject* object =
                             scene.findByName(start.name)) {
@@ -637,7 +743,13 @@ int main(int argc, char** argv) {
             if (hoverAxis != lastHoverAxis || tool != lastHoverTool ||
                 primary != lastHoverPrimary || tx != lastHoverTx ||
                 ty != lastHoverTy) {
-                SK_INFO("gizmo eje %c punta (%d,%d)", "XYZ"[hoverAxis], tx, ty);
+                if (hoverAxis < 3) {
+                    SK_INFO("gizmo eje %c punta (%d,%d)", "XYZ"[hoverAxis], tx,
+                            ty);
+                } else {
+                    SK_INFO("gizmo eje -%c punta (%d,%d)", "XYZ"[hoverAxis - 3],
+                            tx, ty);
+                }
                 lastHoverTool = tool;
                 lastHoverAxis = hoverAxis;
                 lastHoverPrimary = primary;
@@ -858,7 +970,12 @@ int main(int argc, char** argv) {
         // renderer clama al buffer si hubiera mas de kGizmoCapacity).
         std::vector<sk::LineVertex> gizmoLines;
         if (gizmoReady) {
-            const int paintAxis = gizmoDrag.active ? gizmoDrag.axis : hoverAxis;
+            // Resalta el mango bajo el puntero o el mango agarrado.
+            int paintAxis = hoverAxis;
+            if (gizmoDrag.active) {
+                paintAxis = gizmoDrag.axis +
+                            (gizmoDrag.axisSign < 0 ? 3 : 0);
+            }
             const std::vector<sk::GizmoLine> geo = sk::buildGizmo(
                 gizmoDrag.active ? gizmoDrag.tool : tool, gizmoOrigin,
                 gizmoScaleMax, gizmoViewDir, paintAxis);
