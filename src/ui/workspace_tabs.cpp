@@ -95,7 +95,9 @@ void paintTool(const DRAWITEMSTRUCT& dis, bool active) {
         SelectObject(hdc, oldPen);
         DeleteObject(pen);
         DeleteObject(brush);
-    } else if (!ui::paintDarkButton(dis)) {
+    } else if (!ui::paintDarkButton(dis, false)) {
+        // Solo la base: la etiqueta se pinta abajo (si paintDarkButton
+        // dibujara el texto centrado saldria repetido junto al icono).
         return;
     }
 

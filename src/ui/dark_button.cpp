@@ -60,11 +60,11 @@ DarkButton* findDarkButton(HWND hwnd) {
     return nullptr;
 }
 
-bool paintDarkButton(const DRAWITEMSTRUCT& dis) {
+bool paintDarkButton(const DRAWITEMSTRUCT& dis, bool drawText) {
     if (dis.CtlType != ODT_BUTTON) return false;
     const DarkButton* b = findDarkButton(dis.hwndItem);
     if (!b) return false;
-    theme::paintDarkButton(dis, b->hover);
+    theme::paintDarkButton(dis, b->hover, drawText);
     return true;
 }
 

@@ -71,7 +71,10 @@ inline void enableDarkTitleBar(HWND hwnd) {
 
 // Pinta un boton redondo con el texto centrado.
 // hover: estado de pasada del raton (subclase en el boton).
-inline void paintDarkButton(const DRAWITEMSTRUCT& dis, bool hover) {
+// drawText: false para pintar solo la base (el llamante dibuja su icono
+// y su propia etiqueta encima, como los botones de herramienta).
+inline void paintDarkButton(const DRAWITEMSTRUCT& dis, bool hover,
+                            bool drawText = true) {
     HDC hdc = dis.hDC;
     RECT rc = dis.rcItem;
 
@@ -91,6 +94,8 @@ inline void paintDarkButton(const DRAWITEMSTRUCT& dis, bool hover) {
     SelectObject(hdc, oldPen);
     DeleteObject(pen);
     DeleteObject(brush);
+
+    if (!drawText) return;
 
     char label[128]{};
     GetWindowTextA(dis.hwndItem, label, static_cast<int>(sizeof(label)));

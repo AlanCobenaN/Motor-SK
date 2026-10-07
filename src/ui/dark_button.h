@@ -19,7 +19,10 @@ DarkButton* findDarkButton(HWND hwnd);
 
 // Pinta el boton si es nuestro (ODT_BUTTON de la lista). Devuelve true si
 // lo pinto; el caller debe devolver TRUE en ese caso.
-bool paintDarkButton(const DRAWITEMSTRUCT& dis);
+// Pinta la base redondeada del boton en el WM_DRAWITEM del padre.
+// drawText=false solo pinta el fondo (para botones con icono y etiqueta
+// propias). Devuelve false si el hwnd no es un DarkButton.
+bool paintDarkButton(const DRAWITEMSTRUCT& dis, bool drawText = true);
 
 } // namespace ui
 } // namespace sk
