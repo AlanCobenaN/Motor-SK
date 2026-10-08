@@ -70,7 +70,11 @@ bool gizmoBegin(GizmoDrag& drag, int tool, int handle, const Scene& scene,
 
 // Aplica el puntero actual a todos los objetos desde sus snapshots.
 // Devuelve false si el rayo no corta el plano (se ignora ese frame).
-bool gizmoUpdate(GizmoDrag& drag, const Ray& ray, Scene& scene);
+// moveStep > 0 redondea el desplazamiento/escala del frame a pasos de
+// esa cantidad (unidades de mundo); rotStep > 0 redondea el angulo a
+// pasos de esos grados. Con 0 el arrastre queda libre.
+bool gizmoUpdate(GizmoDrag& drag, const Ray& ray, Scene& scene,
+                 float moveStep, float rotStep);
 
 // Revierte todos los objetos a sus snapshots (ESC).
 void gizmoRevert(GizmoDrag& drag, Scene& scene);

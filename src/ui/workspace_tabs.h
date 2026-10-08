@@ -53,6 +53,13 @@ public:
     // triangulito desplegable; el boton principal crea esa forma.
     int partShape() const { return partShape_; }
 
+    // Pasos de la barra: la cajita de arriba (mover/escalar/arrastrar)
+    // da el paso de rejilla en unidades de mundo (0 = sin redondeo) y la
+    // de abajo el paso de rotacion en grados enteros (1..360). El dueno
+    // del arrastre los lee cada frame.
+    float moveStep() const { return moveStep_; }
+    int rotateStep() const { return rotateStep_; }
+
     // width/height son los de la ventana principal; la barra solo usa
     // kTopBandHeight de alto.
     void resize(int width, int height);
@@ -66,6 +73,8 @@ private:
     void setPartShape(int shape);
     void updatePartLabel();
     void showShapeMenu(bool show);
+    void commitMoveField();
+    void commitRotField();
 
     static constexpr int kTabCount = 3;
     static constexpr int kIdPart = 100;
@@ -74,6 +83,11 @@ private:
     static constexpr int kShapeCount = 7;
     static constexpr int kToolCount = 4;
     static constexpr int kIdToolBase = 110;
+    static constexpr int kIdDivider = 125;    // rallita entre Rotate y Cube
+    static constexpr int kIdStepBoxMove = 130; // cajita de pasos (icono)
+    static constexpr int kIdStepBoxRot = 131;
+    static constexpr int kIdStepEditMove = 140; // cajitas de pasos (texto)
+    static constexpr int kIdStepEditRot = 141;
 
     void* parent_ = nullptr;
     void* hwnd_ = nullptr;
@@ -83,9 +97,14 @@ private:
     void* shapeMenu_ = nullptr;       // ventana emergente de formas
     void* shapeButtons_[kShapeCount] = {};
     void* toolButtons_[kToolCount] = {};
+    void* divider_ = nullptr;          // rallita entre Rotate y Cube
+    void* stepBoxes_[2] = {};          // cajitas de pasos (icono pintado)
+    void* stepEdits_[2] = {};          // cajitas de pasos (texto)
     int active_ = 0;
     int tool_ = 0;
     int partShape_ = 0;
+    float moveStep_ = 1.0f;   // paso mover/escalar/arrastrar (mundo)
+    int rotateStep_ = 15;     // paso de rotacion en grados
     bool menuOpen_ = false;
     bool visible_ = false;
     std::function<void(int)> onTabChanged_;

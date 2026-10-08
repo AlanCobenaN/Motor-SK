@@ -873,7 +873,8 @@ int main(int argc, char** argv) {
             sk::DragResult result;
             sk::computeSurfaceDrag(scene, ray0, ray1, dragged, leadIndex,
                                    grabOffset, startPose, alignSurface,
-                                   snapGrid ? sk::kDragGrid : 0.0f, result);
+                                   snapGrid ? workspace.moveStep() : 0.0f,
+                                   result);
             for (const sk::DragPose& pose : result.poses) {
                 if (sk::SceneObject* object = scene.findByName(pose.name)) {
                     object->position = pose.position;
@@ -912,7 +913,9 @@ int main(int argc, char** argv) {
         if (gizmoDrag.active) {
             const sk::Ray ray = sk::rayFromCamera(
                 camera, aspect, 60.0f, window.mousePos(), vpW, vpH);
-            if (sk::gizmoUpdate(gizmoDrag, ray, scene) && selection.size() == 1 &&
+            if (sk::gizmoUpdate(gizmoDrag, ray, scene, workspace.moveStep(),
+                            static_cast<float>(workspace.rotateStep())) &&
+                selection.size() == 1 &&
                 primaryObj) {
                 place.showObject(*primaryObj, false); // Transform al dia (sin relayout)
             }

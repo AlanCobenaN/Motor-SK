@@ -282,16 +282,23 @@ bool gizmoBegin(GizmoDrag& drag, int tool, int handle, const Scene& scene,
     return true;
 }
 
-bool gizmoUpdate(GizmoDrag& drag, const Ray& ray, Scene& scene) {
+bool gizmoUpdate(GizmoDrag& drag, const Ray& ray, Scene& scene,
+                 float moveStep, float rotStep) {
     if (!drag.active) return false;
 
     Vec3 hit;
     if (!rayPlane(ray, drag.origin, drag.planeN, hit)) return false;
 
+    // Pasos "en ticks": redondea la variacion del frame (0 = libre).
+    auto snapStep = [](float v, float step) {
+        return (step > 0.0f) ? std::round(v / step) * step : v;
+    };
+
     if (drag.tool == 1) {
         // Mover: delta = eje * (s - s0), igual para toda la seleccion.
         const float s = dot(hit - drag.origin, drag.axisDir);
-        const Vec3 delta = drag.axisDir * (s - drag.s0);
+        const Vec3 delta =
+            drag.axisDir * snapStep(s - drag.s0, moveStep);
         for (const GizmoSnapshot& snap : drag.snapshots) {
             SceneObject* object = scene.findByName(snap.name);
             if (object) object->position = snap.position + delta;
@@ -304,7 +311,9 @@ bool gizmoUpdate(GizmoDrag& drag, const Ray& ray, Scene& scene) {
         // cara OPUESTA al mango anclada (la posicion se desplaza media
         // variacion de escala hacia la direccion del mango). Si el
         // objeto esta rotado el anclaje usa los ejes de mundo (AABB del
-        // gizmo), suficiente para la seleccion tipica sin rotar.
+        // gizmo), suficiente para la seleccion tipica sin rotar. La
+        // variacion de tamano se redondea a `moveStep` (tick 0.1 => la
+        // escala salta de 0.1 en 0.1).
         const float s = dot(hit - drag.origin, drag.axisDir);
         // Con el mango negativo (handle 3..5) alejarse del centro va en
         // -eje: el signo invierte el factor para que arrastrar hacia
@@ -317,7 +326,10 @@ bool gizmoUpdate(GizmoDrag& drag, const Ray& ray, Scene& scene) {
             if (!object) continue;
             object->scale = snap.scale;
             const float oldComp = component(snap.scale, drag.axis);
-            const float newComp = oldComp * factor;
+            const float rawNew = oldComp * factor;
+            const float newComp =
+                std::max(0.05f,
+                         oldComp + snapStep(rawNew - oldComp, moveStep));
             setComponent(object->scale, drag.axis, newComp);
             object->position = snap.position;
             setComponent(object->position, drag.axis,
@@ -328,7 +340,8 @@ bool gizmoUpdate(GizmoDrag& drag, const Ray& ray, Scene& scene) {
     }
 
     // Rotar: el delta de angulo alrededor del eje propio de cada objeto
-    // (la posicion no cambia: gira en su centro).
+    // (la posicion no cambia: gira en su centro). El angulo se redondea
+    // a `rotStep` grados enteros.
     Vec3 u, v;
     circleBasis(drag.axisDir, u, v);
     const Vec3 rel = hit - drag.origin;
@@ -336,7 +349,7 @@ bool gizmoUpdate(GizmoDrag& drag, const Ray& ray, Scene& scene) {
     float delta = angle - drag.s0;
     while (delta > kPi) delta -= kTwoPi;
     while (delta < -kPi) delta += kTwoPi;
-    const float deltaDeg = delta * (180.0f / kPi);
+    const float deltaDeg = snapStep(delta * (180.0f / kPi), rotStep);
     for (const GizmoSnapshot& snap : drag.snapshots) {
         SceneObject* object = scene.findByName(snap.name);
         if (!object) continue;
