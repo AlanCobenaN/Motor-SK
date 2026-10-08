@@ -78,6 +78,24 @@ public:
     Mat4 view() const { return lookAt(position_, position_ + forward(), kUp); }
 
     const Vec3& position() const { return position_; }
+    void setPosition(const Vec3& p) { position_ = p; }
+
+    // Enfoca un objetivo (centro de un objeto o grupo) y su radio:
+    // orienta la camara hacia el punto (sin saltar si ya esta en el) y
+    // la coloca a una distancia que depende del tamano del objetivo.
+    void focus(const Vec3& target, float radius) {
+        const Vec3 to = target - position_;
+        if (length(to) > 1e-4f) {
+            const Vec3 dir = normalize(to);
+            pitch_ = std::asin(dir.y);
+            if (pitch_ > kMaxPitch) pitch_ = kMaxPitch;
+            if (pitch_ < -kMaxPitch) pitch_ = -kMaxPitch;
+            yaw_ = std::atan2(dir.z, dir.x);
+        }
+        const float dist =
+            2.5f * ((radius > 1e-4f) ? radius : 1.0f) + 1.5f;
+        position_ = target - forward() * dist;
+    }
 
     // Yaw/pitch en radianes; direccion -Z al inicio.
     float yaw_ = -kPi * 0.5f;

@@ -22,6 +22,7 @@
 #include "ui/code_view.h"
 #include "ui/place_view.h"
 #include "ui/projects_panel.h"
+#include "ui/prompt.h"
 #include "ui/workspace_tabs.h"
 
 namespace {
@@ -131,6 +132,51 @@ int main(int argc, char** argv) {
         }
     };
 
+    // Historia de deshacer/rehacer (Ctrl+Z / Ctrl+Y): snapshot completo
+    // de la escena (objetos + seleccion) antes de cada mutacion de la
+    // division PLACE. Deshacer restaura el anterior, rehacer vuelve a
+    // aplicarlo; el limite evita que la pila crezca sin fin.
+    struct SceneSnapshot {
+        std::vector<sk::SceneObject> objects;
+        std::vector<std::string> selection;
+        std::string primary;
+    };
+    constexpr int kUndoLimit = 50;
+    std::vector<SceneSnapshot> undoStack;
+    std::vector<SceneSnapshot> redoStack;
+    auto captureState = [&]() {
+        if (undoStack.size() >= kUndoLimit) {
+            undoStack.erase(undoStack.begin());
+        }
+        undoStack.push_back({scene.objects(), selection, primary});
+        redoStack.clear();
+    };
+
+    // Renombrar una Part (campo Nombre de Properties o tecla F12): lo
+    // aplica a la escena, al Explorer y al resto de paneles. Devuelve
+    // false y no toca nada si el cambio no es valido (vacio, igual,
+    // duplicado o inexistente).
+    auto doRename = [&](const std::string& oldName,
+                        const std::string& newName) -> bool {
+        if (newName.empty() || oldName == newName) return false;
+        if (!scene.findByName(oldName)) return false;
+        if (scene.findByName(newName)) return false;
+        captureState();
+        if (!scene.renameObject(oldName, newName)) return false;
+        if (primary == oldName) primary = newName;
+        for (std::string& name : selection) {
+            if (name == oldName) name = newName;
+        }
+        place.renameTreeItem(oldName, newName);
+        saveScene();
+        SK_INFO("Part renombrado: %s -> %s", oldName.c_str(), newName.c_str());
+        if (const sk::SceneObject* object = scene.findByName(newName)) {
+            place.showObject(*object); // campo y selectedName_ al dia
+        }
+        code.refreshProperties(); // "Asociado a" en CODE
+        return true;
+    };
+
     auto openProject = [&](const std::string& folder) {
         sk::Project p;
         if (!sk::project::load(folder, p)) {
@@ -142,6 +188,8 @@ int main(int argc, char** argv) {
         active = std::move(p);
         scene.clear();
         scene.loadFromFile(scenePath(active));
+        undoStack.clear(); // cada proyecto parte con historia nueva
+        redoStack.clear();
         place.clearObjects();   // Explorer vuelve a solo dimension01
         for (const sk::SceneObject& object : scene.objects()) {
             place.addObject(object.name); // la ultima queda seleccionada
@@ -205,6 +253,7 @@ int main(int argc, char** argv) {
         const sk::Shape s = (shape >= 0 && shape < static_cast<int>(sk::Shape::Count))
                                 ? static_cast<sk::Shape>(shape)
                                 : sk::Shape::Cube;
+        captureState();
         const std::string name = scene.addPart(s).name;
         place.addObject(name);
         saveScene();
@@ -249,6 +298,10 @@ int main(int argc, char** argv) {
         sk::Vec3* target = &object->position;
         if (row == 1) target = &object->scale;          // Size
         else if (row == 2) target = &object->rotation;  // Orientation
+        if (std::fabs((&target->x)[axis] - value) < 1e-6f) {
+            return; // sin cambio: no ensucia la historia ni guarda
+        }
+        captureState();
         (&target->x)[axis] = value;
         saveScene();
         place.showObject(*object);
@@ -262,20 +315,7 @@ int main(int argc, char** argv) {
     // el texto anterior.
     place.setOnNameEdited([&](const std::string& oldName,
                               const std::string& newName) {
-        if (!scene.renameObject(oldName, newName)) return false;
-        if (primary == oldName) primary = newName;
-        for (std::string& name : selection) {
-            if (name == oldName) name = newName;
-        }
-        place.renameTreeItem(oldName, newName);
-        saveScene();
-        SK_INFO("Part renombrado: %s -> %s", oldName.c_str(),
-                newName.c_str());
-        if (const sk::SceneObject* object = scene.findByName(newName)) {
-            place.showObject(*object); // campo y selectedName_ al dia
-        }
-        code.refreshProperties(); // "Asociado a" en CODE
-        return true;
+        return doRename(oldName, newName);
     });
 
     // Properties checkboxes (ids del panel: 400 CastShadow, 401 Locked,
@@ -283,14 +323,20 @@ int main(int argc, char** argv) {
     place.setOnBoolEdited([&](const std::string& name, int id, bool value) {
         sk::SceneObject* object = scene.findByName(name);
         if (!object) return;
+        bool* target = nullptr;
         const char* field = nullptr;
         switch (id) {
-        case 400: object->castShadow = value; field = "CastShadow"; break;
-        case 401: object->locked = value; field = "Locked"; break;
-        case 402: object->canCollide = value; field = "CanCollide"; break;
-        case 403: object->anchored = value; field = "Anchored"; break;
+        case 400: target = &object->castShadow; field = "CastShadow"; break;
+        case 401: target = &object->locked; field = "Locked"; break;
+        case 402: target = &object->canCollide; field = "CanCollide"; break;
+        case 403: target = &object->anchored; field = "Anchored"; break;
         default: return;
         }
+        if (*target == value) {
+            return; // sin cambio: no ensucia la historia ni guarda
+        }
+        captureState();
+        *target = value;
         saveScene();
         SK_INFO("Properties %s: %s = %s", name.c_str(), field,
                 value ? "true" : "false");
@@ -301,9 +347,15 @@ int main(int argc, char** argv) {
     place.setOnFloatEdited([&](const std::string& name, int id, float value) {
         sk::SceneObject* object = scene.findByName(name);
         if (!object) return;
-        if (id == 410) object->reflectance = value;
-        else if (id == 411) object->transparency = value;
+        float* target = nullptr;
+        if (id == 410) target = &object->reflectance;
+        else if (id == 411) target = &object->transparency;
         else return;
+        if (std::fabs(*target - value) < 1e-6f) {
+            return; // sin cambio: no ensucia la historia ni guarda
+        }
+        captureState();
+        *target = value;
         saveScene();
         place.showObject(*object);
         SK_INFO("Properties %s: %s = %.2f", name.c_str(),
@@ -319,6 +371,10 @@ int main(int argc, char** argv) {
         if (idx < 0 || idx >= 6) return;
         sk::Vec3* target =
             idx < 3 ? &object->pivotPosition : &object->pivotRotation;
+        if (std::fabs((&target->x)[idx % 3] - value) < 1e-6f) {
+            return; // sin cambio: no ensucia la historia ni guarda
+        }
+        captureState();
         (&target->x)[idx % 3] = value;
         saveScene();
         place.showObject(*object);
@@ -387,6 +443,10 @@ int main(int argc, char** argv) {
     bool dupKeyWasDown = false;
     bool rotYKeyWasDown = false;
     bool rotXKeyWasDown = false;
+    bool undoKeyWasDown = false;
+    bool redoKeyWasDown = false;
+    bool f12KeyWasDown = false;
+    bool fKeyWasDown = false;
     auto edge = [](bool now, bool& was) {
         const bool rising = now && !was;
         was = now;
@@ -464,6 +524,52 @@ int main(int argc, char** argv) {
         } else {
             place.showMultiple(static_cast<int>(selection.size()));
         }
+    };
+
+    // Vuelve a construir el Explorer tras deshacer/rehacer: las Parts
+    // pueden haber cambiado de nombre, forma o desaparecido.
+    auto rebuildExplorer = [&]() {
+        place.clearObjects();
+        for (const sk::SceneObject& object : scene.objects()) {
+            place.addObject(object.name);
+        }
+    };
+
+    // Aplica un snapshot: sustituye el contenido de la escena, deja la
+    // seleccion en los nombres que siguen existiendo, pinta Properties y
+    // guarda el archivo para que el estado en disco siga al editor.
+    auto restoreState = [&](const SceneSnapshot& state) {
+        scene.objects() = state.objects;
+        std::vector<std::string> names;
+        for (const std::string& name : state.selection) {
+            if (scene.findByName(name)) names.push_back(name);
+        }
+        std::string newPrimary = state.primary;
+        if (!newPrimary.empty() && !scene.findByName(newPrimary)) {
+            newPrimary = names.empty() ? std::string() : names.front();
+        }
+        rebuildExplorer();
+        applySelection(std::move(names), newPrimary);
+        saveScene();
+        logProjection = true;
+    };
+
+    auto doUndo = [&]() {
+        if (undoStack.empty()) return;
+        redoStack.push_back({scene.objects(), selection, primary});
+        SceneSnapshot state = std::move(undoStack.back());
+        undoStack.pop_back();
+        restoreState(state);
+        SK_INFO("undo");
+    };
+
+    auto doRedo = [&]() {
+        if (redoStack.empty()) return;
+        undoStack.push_back({scene.objects(), selection, primary});
+        SceneSnapshot state = std::move(redoStack.back());
+        redoStack.pop_back();
+        restoreState(state);
+        SK_INFO("redo");
     };
 
     while (window.pumpEvents() && (maxFrames < 0 || frame < maxFrames)) {
@@ -575,6 +681,7 @@ int main(int argc, char** argv) {
             !objDragActive &&
             (window.keyDown(VK_DELETE) || window.keyDown(VK_BACK));
         if (delKeyDown && !deleteKeyWasDown && !selection.empty()) {
+            captureState();
             const std::vector<std::string> removed = selection;
             for (const std::string& name : removed) {
                 scene.removeObject(name);
@@ -622,6 +729,7 @@ int main(int argc, char** argv) {
             // Cortar (Ctrl+X): copia y borra; el pegado posterior va al raton.
             const bool cutDown = ok && ctrlDown && window.keyDown('X');
             if (edge(cutDown, cutKeyWasDown) && !selection.empty()) {
+                captureState();
                 clipboard.clear();
                 for (const std::string& name : selection) {
                     if (const sk::SceneObject* object = scene.findByName(name)) {
@@ -643,6 +751,7 @@ int main(int argc, char** argv) {
             // vino de cortar, bajo el puntero.
             const bool pasteDown = ok && ctrlDown && window.keyDown('V');
             if (edge(pasteDown, pasteKeyWasDown) && !clipboard.empty()) {
+                captureState();
                 sk::Vec3 mouseOffset{};
                 if (clipboardFromCut) {
                     const float planeY = clipboard.front().position.y;
@@ -677,6 +786,7 @@ int main(int argc, char** argv) {
             // Clonar en el sitio (Ctrl+D).
             const bool dupDown = ok && ctrlDown && window.keyDown('D');
             if (edge(dupDown, dupKeyWasDown) && !selection.empty()) {
+                captureState();
                 const std::vector<std::string> src = selection;
                 std::vector<std::string> newNames;
                 for (const std::string& name : src) {
@@ -696,6 +806,7 @@ int main(int argc, char** argv) {
             // Rotar 90 grados: Ctrl+R en Y, Ctrl+T en X.
             const bool rotYDown = ok && ctrlDown && window.keyDown('R');
             if (edge(rotYDown, rotYKeyWasDown) && !selection.empty()) {
+                captureState();
                 for (const std::string& name : selection) {
                     if (sk::SceneObject* object = scene.findByName(name)) {
                         object->rotation.y += 90.0f;
@@ -707,6 +818,7 @@ int main(int argc, char** argv) {
             }
             const bool rotXDown = ok && ctrlDown && window.keyDown('T');
             if (edge(rotXDown, rotXKeyWasDown) && !selection.empty()) {
+                captureState();
                 for (const std::string& name : selection) {
                     if (sk::SceneObject* object = scene.findByName(name)) {
                         object->rotation.x += 90.0f;
@@ -715,6 +827,71 @@ int main(int argc, char** argv) {
                 saveScene();
                 applySelection(selection, primary);
                 SK_INFO("Rotado +90 en X");
+            }
+        }
+
+        // --- Deshacer/rehacer (Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z),
+        // renombrar con F12 y foco de camara en la seleccion (F) ---
+        {
+            const bool ctrlDown = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+            const bool shiftDown = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+            const bool keysOk = window.hasFocus() && !window.textInputFocused() &&
+                                workspace.visible() && place.visible() &&
+                                !gizmoDrag.active && !objDragActive;
+            if (keysOk) {
+                // Deshacer y rehacer: solo PLACE y sin escribir en un
+                // campo (escribir Ctrl+Z en un EDIT no debe revertir).
+                const bool undoDown = ctrlDown && window.keyDown('Z');
+                if (edge(undoDown, undoKeyWasDown)) doUndo();
+                const bool redoDown = ctrlDown &&
+                                      (window.keyDown('Y') ||
+                                       (shiftDown && window.keyDown('Z')));
+                if (edge(redoDown, redoKeyWasDown)) doRedo();
+
+                // F12: renombrar la parte activa con un dialogo de texto.
+                if (edge(window.keyDown(VK_F12), f12KeyWasDown) &&
+                    !primary.empty()) {
+                    const sk::SceneObject* object = scene.findByName(primary);
+                    if (object) {
+                        const std::string newName = sk::ui::promptText(
+                            static_cast<HWND>(window.nativeHandle()),
+                            "Renombrar Parte", object->name.c_str());
+                        if (!newName.empty()) {
+                            doRename(object->name, newName);
+                        }
+                    }
+                }
+
+                // F: enfoca la camara en la seleccion (centro del grupo).
+                if (edge(window.keyDown('F'), fKeyWasDown) &&
+                    !selection.empty()) {
+                    sk::Vec3 minV{1e30f, 1e30f, 1e30f};
+                    sk::Vec3 maxV{-1e30f, -1e30f, -1e30f};
+                    bool any = false;
+                    for (const std::string& name : selection) {
+                        const sk::SceneObject* object = scene.findByName(name);
+                        if (!object) continue;
+                        any = true;
+                        for (int a = 0; a < 3; ++a) {
+                            const float half =
+                                std::fabs((&object->scale.x)[a]) * 0.5f;
+                            const float lo =
+                                (&object->position.x)[a] - half;
+                            const float hi =
+                                (&object->position.x)[a] + half;
+                            (&minV.x)[a] = std::fmin((&minV.x)[a], lo);
+                            (&maxV.x)[a] = std::fmax((&maxV.x)[a], hi);
+                        }
+                    }
+                    if (any) {
+                        const sk::Vec3 center = (minV + maxV) * 0.5f;
+                        camera.focus(center, sk::length(maxV - minV) * 0.5f);
+                        SK_INFO("camera foco: %d objeto(s) centro "
+                                "(%.2f,%.2f,%.2f)",
+                                static_cast<int>(selection.size()), center.x,
+                                center.y, center.z);
+                    }
+                }
             }
         }
 
@@ -820,6 +997,7 @@ int main(int argc, char** argv) {
                     // El arrastre del gizmo sustituye al marquee.
                     dragPending = false;
                     dragActive = false;
+                    captureState(); // undo: estado previo al arrastre
                     if (pressAxis < 3) {
                         SK_INFO("gizmo %s: arrastre eje %c", kToolNames[tool],
                                 "XYZ"[pressAxis]);
@@ -986,6 +1164,7 @@ int main(int argc, char** argv) {
                                       pressHit) == selection.end()) {
                             applySelection({pressHit}, pressHit);
                         }
+                        captureState(); // undo: estado previo al arrastre
                         objDragActive = true;
                         objDragStart.clear();
                         for (const std::string& name : selection) {

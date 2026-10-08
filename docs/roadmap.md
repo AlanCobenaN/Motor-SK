@@ -101,6 +101,17 @@ Ejecutable `.exe` con:
         escena y el Explorer, guarda y refresca; raiz `dimension01`
         bloqueada) -> Parent (solo lectura, hoy `dimension01`, valor
         atenuado en los campos estaticos) -> Transform
+- [x] Deshacer/rehacer (Ctrl+Z para deshacer, Ctrl+Y o Ctrl+Shift+Z para
+        rehacer): snapshot de la escena (objetos + seleccion) antes de
+        cada mutacion de PLACE (anadir Part, campos de Properties,
+        renombrar, borrar, cortar/pegar, clonar, rotar y los arrastres de
+        objeto y de gizmo), pila limitada a 50 pasos y historia nueva por
+        proyecto; deshacer/rehacer reconstruye el Explorer y guarda
+- [x] Renombrar con F12: dialogo de texto sobre la parte activa, con la
+        misma validacion que el campo Nombre de Properties (no vacio, no
+        duplicado)
+- [x] Foco de camara (F): enfoca la seleccion (centro y tamano de todo el
+        grupo) reorientando la vista y ajustando la distancia
 
 ## Fase 2 — Render básico
 
