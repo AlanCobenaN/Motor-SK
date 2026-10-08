@@ -54,8 +54,11 @@ public:
     void clearObjects();
 
     // Properties: refresca el panel con el objeto, la raiz o el estado
-    // "Sin objeto seleccionado".
-    void showObject(const SceneObject& object);
+    // "Sin objeto seleccionado". showObject refresca valores y, salvo que
+    // relayout sea false, recoloca los controles (el dueno lo pasa false
+    // mientras arrastra un objeto/gizmo para no rehacer el panel cada
+    // frame, que es lo que hace que parpadee).
+    void showObject(const SceneObject& object, bool relayout = true);
     void showRoot();
     void showNoSelection();
 
@@ -119,6 +122,11 @@ public:
     // onSelectionChanged: el dueno ya gestiona la seleccion.
     void removeTreeItem(const std::string& name);
 
+    // Estado de un checkbox de bool (ids 400..403): cambia el valor y
+    // repinta la casilla solo si cambio. Publica porque tambien la usan
+    // los helpers internos del panel (resetPartFields).
+    void setCheck(int id, bool on);
+
 private:
     static long long __stdcall wndProc(void* hwnd, unsigned int msg,
                                        unsigned long long wParam, long long lParam);
@@ -146,6 +154,10 @@ private:
     bool catOpen_[5] = {true, true, true, true, true};
     bool rowOpen_[3] = {false, false, false};
     bool pivotRowOpen_[2] = {false, false};
+    // Estado de los checkboxes (ids 400..403): BS_OWNERDRAW solo, asi que
+    // el estado lo llevamos aqui (BM_GETCHECK requiere BS_CHECKBOX, que
+    // no se puede combinar con BS_OWNERDRAW sin perder los clicks).
+    bool checkState_[4] = {};
     int triCat_[5][4] = {};
     int triRow_[3][4] = {};
     int triPivotRow_[2][4] = {};

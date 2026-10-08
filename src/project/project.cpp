@@ -23,12 +23,15 @@ const char* kFileName = "proyecto.sk";
 // El cubo de referencia del renderer mide 1x1x1 unidades, asi que
 // "escala" son las medidas exactas del objeto (una losa de 20x1 en el
 // suelo) y "posicion" -0.5 en Y deja su cara superior a ras de rejilla.
+// Nace bloqueada (locked): no se arrastra ni se selecciona en el
+// viewport, para no mover el suelo por accidente.
 constexpr const char* kDefaultScene =
     "version: 1\n"
     "objeto: basepart\n"
     "posicion: 0 -0.5 0\n"
     "rotacion: 0 0 0\n"
-    "escala: 20 1 20\n";
+    "escala: 20 1 20\n"
+    "locked: true\n";
 
 std::string trim(const std::string& s) {
     const char* ws = " \t\r\n";

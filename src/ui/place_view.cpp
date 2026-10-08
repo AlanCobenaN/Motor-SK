@@ -141,15 +141,32 @@ HTREEITEM addTreeRoot(HWND tree, const char* text) {
 
 // Escribe un campo Transform (ids 200..208) con formato compacto.
 // keep (opcional) guarda el texto escrito para poder restaurarlo si el
-// usuario escribe algo que no es un numero.
+// usuario escribe algo que no es un numero. Si el campo ya muestra ese
+// texto no se reescribe (evita repintar el EDIT y con ello parpadeos).
 void setTransformField(HWND props, int id, float value,
                        std::string* keep = nullptr) {
     HWND field = GetDlgItem(props, id);
     if (!field) return;
     char buf[32]{};
     snprintf(buf, sizeof(buf), "%.3g", value);
-    if (keep) *keep = buf;
+    if (keep) {
+        if (*keep == buf) {
+            char cur[32]{};
+            GetWindowTextA(field, cur, static_cast<int>(sizeof(cur)));
+            if (std::strcmp(cur, buf) == 0) return;
+        }
+        *keep = buf;
+    }
     SetWindowTextA(field, buf);
+}
+
+// Escribe un STATIC/EDIT de solo lectura solo si el texto cambia: asi
+// un refresco por frame (arrastre) no repinta controles que no cambiaron.
+void setWindowTextIfDifferent(HWND w, const char* text) {
+    if (!w || !text) return;
+    char cur[96]{};
+    GetWindowTextA(w, cur, static_cast<int>(sizeof(cur)));
+    if (std::strcmp(cur, text) != 0) SetWindowTextA(w, text);
 }
 
 // Transform identico para raiz / sin seleccion: posicion 0, size 1,
@@ -169,7 +186,7 @@ void setTransformIdentity(HWND props, std::string* keep) {
 HWND makeStatic(HWND parent, HINSTANCE inst, int id, const char* text,
                 int x, int y, int w, int h, HFONT font) {
     HWND hwnd = CreateWindowExA(0, "STATIC", text,
-                                WS_CHILD | WS_VISIBLE | SS_LEFT,
+                                WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOTIFY,
                                 x, y, w, h, parent,
                                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
                                 inst, nullptr);
@@ -247,8 +264,9 @@ bool inTri(const int rect[4], int x, int y) {
 
 // Checkbox de los booleanos: cajita oscura dibujada a mano (BS_OWNERDRAW)
 // para que el fondo no sea el gris del sistema. bg es el pincel de la
-// banda zebra que hay debajo de la casilla.
-void drawCheckBox(const DRAWITEMSTRUCT& dis, HBRUSH bg) {
+// banda zebra que hay debajo de la casilla; el estado lo trae el dueno
+// (BM_GETCHECK requiere BS_CHECKBOX, que no combina con BS_OWNERDRAW).
+void drawCheckBox(const DRAWITEMSTRUCT& dis, HBRUSH bg, bool checked) {
     HDC hdc = dis.hDC;
     RECT r = dis.rcItem;
     FillRect(hdc, &r, bg);
@@ -258,9 +276,6 @@ void drawCheckBox(const DRAWITEMSTRUCT& dis, HBRUSH bg) {
     const int cy = (r.top + r.bottom) / 2;
     RECT box{cx - side / 2, cy - side / 2, cx + side / 2 + 1,
              cy + side / 2 + 1};
-
-    const bool checked =
-        SendMessageA(dis.hwndItem, BM_GETCHECK, 0, 0) == BST_CHECKED;
 
     HBRUSH fill = CreateSolidBrush(theme::surface());
     FillRect(hdc, &box, fill);
@@ -422,7 +437,7 @@ bool PlaceView::create(void* parentHwnd) {
     makeStatic(hprop, inst, kIdLblCastShadow, "CastShadow",
                54, 0, 64, 20, theme::uiFont());
     HWND castShadowBtn = CreateWindowExA(0, "BUTTON", "",
-                                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_CHECKBOX | BS_OWNERDRAW,
+                                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                                          122, 0, 20, 20, hprop,
                                          reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdCastShadow)),
                                          inst, nullptr);
@@ -445,7 +460,7 @@ bool PlaceView::create(void* parentHwnd) {
     makeStatic(hprop, inst, kIdLblLocked, "Locked",
                54, 0, 64, 20, theme::uiFont());
     HWND lockedBtn = CreateWindowExA(0, "BUTTON", "",
-                                     WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_CHECKBOX | BS_OWNERDRAW,
+                                     WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                                      122, 0, 20, 20, hprop,
                                      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdLocked)),
                                      inst, nullptr);
@@ -457,7 +472,7 @@ bool PlaceView::create(void* parentHwnd) {
     makeStatic(hprop, inst, kIdLblCanCollide, "CanCollide",
                54, 0, 64, 20, theme::uiFont());
     HWND canCollideBtn = CreateWindowExA(0, "BUTTON", "",
-                                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_CHECKBOX | BS_OWNERDRAW,
+                                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                                          122, 0, 20, 20, hprop,
                                          reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdCanCollide)),
                                          inst, nullptr);
@@ -465,7 +480,7 @@ bool PlaceView::create(void* parentHwnd) {
     makeStatic(hprop, inst, kIdLblAnchored, "Anchored",
                54, 0, 64, 20, theme::uiFont());
     HWND anchoredBtn = CreateWindowExA(0, "BUTTON", "",
-                                       WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_CHECKBOX | BS_OWNERDRAW,
+                                       WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                                        122, 0, 20, 20, hprop,
                                        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdAnchored)),
                                        inst, nullptr);
@@ -599,8 +614,8 @@ void PlaceView::removeTreeItem(const std::string& name) {
 
 // Estado base de los controles de parte (ClassName, floats, checkboxes y
 // Pivot) cuando no hay objeto seleccionado: texto "-" y casillas apagadas.
-void resetPartFields(HWND props, const char* text, std::string* floatText,
-                     std::string* pivotText) {
+void resetPartFields(PlaceView* self, HWND props, const char* text,
+                     std::string* floatText, std::string* pivotText) {
     if (HWND w = GetDlgItem(props, kIdClassName)) SetWindowTextA(w, text);
     if (HWND w = GetDlgItem(props, kIdShape)) SetWindowTextA(w, text);
     for (int i = 0; i < 2; ++i) {
@@ -621,20 +636,27 @@ void resetPartFields(HWND props, const char* text, std::string* floatText,
         }
     }
     for (int id = kIdCastShadow; id <= kIdAnchored; ++id) {
-        HWND box = GetDlgItem(props, id);
-        if (!box) continue;
-        SendMessageA(box, BM_SETCHECK, BST_UNCHECKED, 0);
+        if (self) self->setCheck(id, false);
+    }
+}
+
+void PlaceView::setCheck(int id, bool on) {
+    const int idx = id - kIdCastShadow;
+    if (idx < 0 || idx >= 4) return;
+    if (checkState_[idx] == on) return;
+    checkState_[idx] = on;
+    if (HWND box = GetDlgItem(static_cast<HWND>(properties_), id)) {
         InvalidateRect(box, nullptr, TRUE);
     }
 }
 
-void PlaceView::showObject(const SceneObject& object) {
+void PlaceView::showObject(const SceneObject& object, bool relayout) {
     HWND props = static_cast<HWND>(properties_);
     if (!props) return;
     showCategories_ = true;
     selectedName_ = object.name;
     if (HWND status = GetDlgItem(props, kIdStatus)) {
-        SetWindowTextA(status, object.name.c_str());
+        setWindowTextIfDifferent(status, object.name.c_str());
         EnableWindow(status, TRUE); // hay objeto: el nombre es editable
     }
     for (int axis = 0; axis < 3; ++axis) {
@@ -647,39 +669,35 @@ void PlaceView::showObject(const SceneObject& object) {
     }
     updateSummaries();
     if (HWND parent = GetDlgItem(props, kIdParentValue)) {
-        SetWindowTextA(parent, kRootName);
+        setWindowTextIfDifferent(parent, kRootName);
     }
 
     if (HWND className = GetDlgItem(props, kIdClassName)) {
-        SetWindowTextA(className, "Part");
+        setWindowTextIfDifferent(className, "Part");
     }
     if (HWND shape = GetDlgItem(props, kIdShape)) {
-        SetWindowTextA(shape, shapeName(object.shape));
+        setWindowTextIfDifferent(shape, shapeName(object.shape));
     }
-    if (HWND castShadow = GetDlgItem(props, kIdCastShadow)) {
-        SendMessageA(castShadow, BM_SETCHECK, object.castShadow ? BST_CHECKED : BST_UNCHECKED, 0);
-    }
+    setCheck(kIdCastShadow, object.castShadow);
     if (HWND reflectance = GetDlgItem(props, kIdReflectance)) {
         char buf[32]{};
         snprintf(buf, sizeof(buf), "%.2f", object.reflectance);
-        SetWindowTextA(reflectance, buf);
-        floatText_[0] = buf;
+        if (floatText_[0] != buf) {
+            floatText_[0] = buf;
+            SetWindowTextA(reflectance, buf);
+        }
     }
     if (HWND transparency = GetDlgItem(props, kIdTransparency)) {
         char buf[32]{};
         snprintf(buf, sizeof(buf), "%.2f", object.transparency);
-        SetWindowTextA(transparency, buf);
-        floatText_[1] = buf;
+        if (floatText_[1] != buf) {
+            floatText_[1] = buf;
+            SetWindowTextA(transparency, buf);
+        }
     }
-    if (HWND locked = GetDlgItem(props, kIdLocked)) {
-        SendMessageA(locked, BM_SETCHECK, object.locked ? BST_CHECKED : BST_UNCHECKED, 0);
-    }
-    if (HWND canCollide = GetDlgItem(props, kIdCanCollide)) {
-        SendMessageA(canCollide, BM_SETCHECK, object.canCollide ? BST_CHECKED : BST_UNCHECKED, 0);
-    }
-    if (HWND anchored = GetDlgItem(props, kIdAnchored)) {
-        SendMessageA(anchored, BM_SETCHECK, object.anchored ? BST_CHECKED : BST_UNCHECKED, 0);
-    }
+    setCheck(kIdLocked, object.locked);
+    setCheck(kIdCanCollide, object.canCollide);
+    setCheck(kIdAnchored, object.anchored);
     for (int axis = 0; axis < 3; ++axis) {
         setTransformField(props, kIdPivotBase + axis,
                           (&object.pivotPosition.x)[axis],
@@ -689,13 +707,11 @@ void PlaceView::showObject(const SceneObject& object) {
                           &pivotText_[3 + axis]);
     }
     updateSummaries(); // resumenes del Pivot ya con los ejes al dia
-    // Repinta las cajitas de los booleans (BS_OWNERDRAW).
-    for (int id = kIdCastShadow; id <= kIdAnchored; ++id) {
-        if (HWND box = GetDlgItem(props, id)) InvalidateRect(box, nullptr, TRUE);
-    }
     // Recoloca y muestra los controles: tras showNoSelection quedaron
     // todos ocultos (showCategories_ = false) y hay que volver a mostrarlos.
-    layoutProperties();
+    // Mientras se arrastra un objeto el dueno pasa relayout=false y solo
+    // se refrescan los numeros, sin recolocar nada (evita el parpadeo).
+    if (relayout) layoutProperties();
 }
 
 void PlaceView::showRoot() {
@@ -712,7 +728,7 @@ void PlaceView::showRoot() {
     if (HWND parent = GetDlgItem(props, kIdParentValue)) {
         SetWindowTextA(parent, "-"); // la raiz no tiene padre
     }
-    resetPartFields(props, "-", floatText_, pivotText_);
+    resetPartFields(this, props, "-", floatText_, pivotText_);
     layoutProperties();
 }
 
@@ -729,7 +745,7 @@ void PlaceView::showNoSelection() {
     setTransformIdentity(props, fieldText_);
     updateSummaries();
     if (HWND parent = GetDlgItem(props, kIdParentValue)) SetWindowTextA(parent, "-");
-    resetPartFields(props, "-", floatText_, pivotText_);
+    resetPartFields(this, props, "-", floatText_, pivotText_);
     layoutProperties();
 }
 
@@ -757,7 +773,7 @@ void PlaceView::showMultiple(int count) {
     if (HWND parent = GetDlgItem(props, kIdParentValue)) {
         SetWindowTextA(parent, kRootName);
     }
-    resetPartFields(props, "-", floatText_, pivotText_);
+    resetPartFields(this, props, "-", floatText_, pivotText_);
     layoutProperties();
 }
 
@@ -809,21 +825,31 @@ void PlaceView::notifySelection() {
 }
 
 // Reescribe los resumenes "x, y, z" (ids 300..302) a partir de los
-// textos de los ejes ya guardados en fieldText_.
+// textos de los ejes ya guardados en fieldText_. Si el resumen ya
+// muestra ese texto no se reescribe (evita repintar el EDIT durante
+// un arrastre, que refresca el panel cada frame).
 void PlaceView::updateSummaries() {
     HWND props = static_cast<HWND>(properties_);
     if (!props) return;
     for (int row = 0; row < 3; ++row) {
         summaryText_[row] = joinSummary(&fieldText_[row * 3]);
         if (HWND sum = GetDlgItem(props, kIdSummary + row)) {
-            SetWindowTextA(sum, summaryText_[row].c_str());
+            char cur[96]{};
+            GetWindowTextA(sum, cur, static_cast<int>(sizeof(cur)));
+            if (std::strcmp(cur, summaryText_[row].c_str()) != 0) {
+                SetWindowTextA(sum, summaryText_[row].c_str());
+            }
         }
     }
     // Resumenes "x, y, z" del Pivot (mismas filas Position/Orientation).
     for (int row = 0; row < 2; ++row) {
         pivotSummaryText_[row] = joinSummary(&pivotText_[row * 3]);
         if (HWND sum = GetDlgItem(props, kIdPivotSummary + row)) {
-            SetWindowTextA(sum, pivotSummaryText_[row].c_str());
+            char cur[96]{};
+            GetWindowTextA(sum, cur, static_cast<int>(sizeof(cur)));
+            if (std::strcmp(cur, pivotSummaryText_[row].c_str()) != 0) {
+                SetWindowTextA(sum, pivotSummaryText_[row].c_str());
+            }
         }
     }
 }
@@ -1231,7 +1257,10 @@ long long __stdcall PlaceView::wndProc(void* hwndPtr, unsigned int msg,
                                 : (shade == kShadeHeader
                                        ? theme::boxHeaderBrush()
                                        : theme::boxBackgroundBrush());
-                drawCheckBox(*dis, bg);
+                const bool checked =
+                    self ? self->checkState_[dis->CtlID - kIdCastShadow]
+                         : false;
+                drawCheckBox(*dis, bg, checked);
                 return TRUE;
             }
             if (ui::paintDarkButton(*dis)) return TRUE;
@@ -1351,23 +1380,42 @@ long long __stdcall PlaceView::wndProc(void* hwndPtr, unsigned int msg,
                 return 0;
             }
             // Checkbox de Appearance/Data/Collision (400..403): el dueno
-            // aplica el bool al objeto y guarda.
+            // aplica el bool al objeto y guarda. La casilla es BS_OWNERDRAW
+            // (sin BS_CHECKBOX): no alterna sola y el estado lo lleva el
+            // panel (checkState_); asi el boton recibe los clicks.
+            auto toggleCheck = [&](int checkId) {
+                if (checkId < kIdCastShadow || checkId > kIdAnchored) return;
+                const int idx = checkId - kIdCastShadow;
+                self->checkState_[idx] = !self->checkState_[idx];
+                if (HWND box =
+                        GetDlgItem(static_cast<HWND>(self->properties_),
+                                   checkId)) {
+                    InvalidateRect(box, nullptr, TRUE);
+                }
+                if (self->onBoolEdited_ && !self->selectedName_.empty()) {
+                    self->onBoolEdited_(self->selectedName_, checkId,
+                                        self->checkState_[idx]);
+                }
+            };
             if (code == BN_CLICKED && id >= kIdCastShadow &&
                 id <= kIdAnchored) {
-                HWND box =
-                    GetDlgItem(static_cast<HWND>(self->properties_), id);
-                if (!box) return 0;
-                // BS_OWNERDRAW + BS_CHECKBOX no alterna solo: lo hacemos
-                // a mano y repintamos la cajita.
-                const bool checked =
-                    SendMessageA(box, BM_GETCHECK, 0, 0) != BST_CHECKED;
-                SendMessageA(box, BM_SETCHECK,
-                             checked ? BST_CHECKED : BST_UNCHECKED, 0);
-                InvalidateRect(box, nullptr, TRUE);
-                if (self->onBoolEdited_ && !self->selectedName_.empty()) {
-                    self->onBoolEdited_(self->selectedName_, id, checked);
-                }
+                toggleCheck(id);
                 return 0;
+            }
+            // La etiqueta de un bool (STATIC) avisa con STN_CLICKED, que
+            // comparte valor con BN_CLICKED: pulsar el texto tambien
+            // alterna la casilla, como en el propio checkbox.
+            if (code == BN_CLICKED) {
+                const int labelIds[4] = {kIdLblCastShadow, kIdLblLocked,
+                                         kIdLblCanCollide, kIdLblAnchored};
+                const int checkIds[4] = {kIdCastShadow, kIdLocked,
+                                         kIdCanCollide, kIdAnchored};
+                for (int i = 0; i < 4; ++i) {
+                    if (id == labelIds[i]) {
+                        toggleCheck(checkIds[i]);
+                        return 0;
+                    }
+                }
             }
             // Reflectance/Transparency (410..411): numero 0..1 con dos
             // decimales, aplicado una sola vez al perder el foco.
@@ -1456,7 +1504,7 @@ long long __stdcall PlaceView::wndProc(void* hwndPtr, unsigned int msg,
             return reinterpret_cast<long long>(theme::surfaceBrush());
         }
         case WM_CTLCOLORBTN: {
-            // Checkboxes (BS_CHECKBOX | BS_OWNERDRAW) del panel: texto en color de
+            // Checkboxes (BS_OWNERDRAW) del panel: texto en color de
             // tema y fondo de la banda zebra en vez del gris del sistema.
             if (!self) break;
             HDC hdc = reinterpret_cast<HDC>(wParam);

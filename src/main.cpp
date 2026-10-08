@@ -903,7 +903,7 @@ int main(int argc, char** argv) {
             if (selection.size() == 1) {
                 if (const sk::SceneObject* object =
                         scene.findByName(selection.front())) {
-                    place.showObject(*object); // Transform al dia
+                    place.showObject(*object, false); // Transform al dia sin relayout
                 }
             }
         }
@@ -914,7 +914,7 @@ int main(int argc, char** argv) {
                 camera, aspect, 60.0f, window.mousePos(), vpW, vpH);
             if (sk::gizmoUpdate(gizmoDrag, ray, scene) && selection.size() == 1 &&
                 primaryObj) {
-                place.showObject(*primaryObj); // Transform al dia
+                place.showObject(*primaryObj, false); // Transform al dia (sin relayout)
             }
         }
 

@@ -152,6 +152,9 @@ bool pickObjectFace(const Scene& scene, const Ray& ray,
     float bestT = FLT_MAX;
     bool found = false;
     for (const SceneObject& object : scene.objects()) {
+        // Una part Locked no se puede seleccionar en el viewport (sigue
+        // contando como superficie para el snap: eso lo hace rayObjectFace).
+        if (object.locked) continue;
         if (std::find(ignore.begin(), ignore.end(), object.name) !=
             ignore.end()) {
             continue;
@@ -194,6 +197,8 @@ std::vector<std::string> selectInRect(const Scene& scene, const Mat4& viewProj,
 
     std::vector<std::string> hits;
     for (const SceneObject& object : scene.objects()) {
+        // Las parts Locked quedan fuera del marquee (no se seleccionan).
+        if (object.locked) continue;
         const Mat4 mvp = viewProj * object.modelMatrix();
         float minX = FLT_MAX;
         float minY = FLT_MAX;
