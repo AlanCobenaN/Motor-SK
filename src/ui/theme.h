@@ -20,6 +20,9 @@ inline COLORREF text()          { return RGB(238, 238, 242); }
 inline COLORREF textDisabled()  { return RGB(120, 120, 128); }
 inline COLORREF accent()        { return RGB(54, 106, 196); }
 inline COLORREF headerBackground() { return RGB(34, 34, 40); }
+inline COLORREF boxBackground()    { return RGB(40, 40, 46); }
+inline COLORREF boxBackgroundAlt() { return RGB(47, 47, 54); }
+inline COLORREF boxHeader()        { return RGB(31, 31, 37); }
 
 // Pinceles de fondo para clases de ventana y controles.
 inline HBRUSH backgroundBrush() {
@@ -39,6 +42,21 @@ inline HBRUSH listBackgroundBrush() {
 
 inline HBRUSH headerBackgroundBrush() {
     static HBRUSH brush = CreateSolidBrush(headerBackground());
+    return brush;
+}
+
+inline HBRUSH boxBackgroundBrush() {
+    static HBRUSH brush = CreateSolidBrush(boxBackground());
+    return brush;
+}
+
+inline HBRUSH boxBackgroundAltBrush() {
+    static HBRUSH brush = CreateSolidBrush(boxBackgroundAlt());
+    return brush;
+}
+
+inline HBRUSH boxHeaderBrush() {
+    static HBRUSH brush = CreateSolidBrush(boxHeader());
     return brush;
 }
 

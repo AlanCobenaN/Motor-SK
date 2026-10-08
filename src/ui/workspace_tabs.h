@@ -49,6 +49,10 @@ public:
     // Se llama cada vez que cambia la herramienta activa.
     void setOnToolChanged(std::function<void(int)> cb) { onToolChanged_ = std::move(cb); }
 
+    // Forma actual del boton Part (indice de sk::Shape). Cambia desde el
+    // triangulito desplegable; el boton principal crea esa forma.
+    int partShape() const { return partShape_; }
+
     // width/height son los de la ventana principal; la barra solo usa
     // kTopBandHeight de alto.
     void resize(int width, int height);
@@ -56,10 +60,18 @@ public:
 private:
     static long long __stdcall wndProc(void* hwnd, unsigned int msg,
                                        unsigned long long wParam, long long lParam);
+    static long long __stdcall popupProc(void* hwnd, unsigned int msg,
+                                         unsigned long long wParam, long long lParam);
     void selectTab(int index);
+    void setPartShape(int shape);
+    void updatePartLabel();
+    void showShapeMenu(bool show);
 
     static constexpr int kTabCount = 3;
     static constexpr int kIdPart = 100;
+    static constexpr int kIdPartMenu = 120;   // triangulito del boton Part
+    static constexpr int kIdShapeBase = 200;  // opciones del desplegable
+    static constexpr int kShapeCount = 7;
     static constexpr int kToolCount = 4;
     static constexpr int kIdToolBase = 110;
 
@@ -67,9 +79,14 @@ private:
     void* hwnd_ = nullptr;
     void* buttons_[kTabCount] = {};
     void* partButton_ = nullptr;
+    void* partMenuButton_ = nullptr;  // triangulito dentro del boton Part
+    void* shapeMenu_ = nullptr;       // ventana emergente de formas
+    void* shapeButtons_[kShapeCount] = {};
     void* toolButtons_[kToolCount] = {};
     int active_ = 0;
     int tool_ = 0;
+    int partShape_ = 0;
+    bool menuOpen_ = false;
     bool visible_ = false;
     std::function<void(int)> onTabChanged_;
     std::function<void(int)> onAddPart_;

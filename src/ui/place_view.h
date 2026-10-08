@@ -4,9 +4,19 @@
 #include <string>
 #include <vector>
 
+#include <windows.h>
+
 #include "../scene/scene.h"
 
 namespace sk {
+
+// Fila de fondo (cajita) del panel Properties: rectangulo en coordenadas
+// de contenido (sin el desplazamiento) y sombreado. shade: 0 = base de
+// la cajita, 1 = fila alterna mas clara, 2 = cabecera de la cajita.
+struct RowBand {
+    RECT rc;
+    int shade;
+};
 
 // Paneles laterales de la division PLACE: Properties (Nombre editable,
 // fila Parent de solo lectura y Transform) a la izquierda y el Explorer
@@ -80,9 +90,34 @@ public:
         onNameEdited_ = std::move(cb);
     }
 
+    // Checkbox de Appearance/Collision/Data (ids 400..405): el usuario
+    // alterna el valor. El dueno lo aplica al objeto y guarda.
+    void setOnBoolEdited(
+        std::function<void(const std::string&, int id, bool value)> cb) {
+        onBoolEdited_ = std::move(cb);
+    }
+
+    // Campo float de Appearance (ids 410..411): Reflectance/Transparency.
+    // El dueno lo aplica al objeto (clamado 0..1) y guarda.
+    void setOnFloatEdited(
+        std::function<void(const std::string&, int id, float value)> cb) {
+        onFloatEdited_ = std::move(cb);
+    }
+
+    // Campo Pivot (ids 500..508): Position/Orientation del pivote.
+    // El dueno lo aplica al objeto y guarda.
+    void setOnPivotEdited(
+        std::function<void(const std::string&, int id, float value)> cb) {
+        onPivotEdited_ = std::move(cb);
+    }
+
     // Renombra el nodo del Explorer (oldName -> newName) sin disparar
     // onSelectionChanged: el caret sigue en el mismo nodo.
     void renameTreeItem(const std::string& oldName, const std::string& newName);
+
+    // Quita el nodo del Explorer (por nombre) sin disparar
+    // onSelectionChanged: el dueno ya gestiona la seleccion.
+    void removeTreeItem(const std::string& name);
 
 private:
     static long long __stdcall wndProc(void* hwnd, unsigned int msg,
@@ -91,6 +126,7 @@ private:
     void layoutProperties();
     void updateSummaries();
     void notifySelection();
+    void scrollBy(int dy);
 
     void* parent_ = nullptr;
     void* explorer_ = nullptr;
@@ -103,18 +139,40 @@ private:
     // Ultimo texto mostrado en cada campo Transform (para restaurarlo si
     // la edicion no es un numero o no hay objeto seleccionado).
     std::string fieldText_[9];
-    // Estado de las cascadas del panel Transform: todo desplegado al
-    // arrancar. tri*_ es la zona de click del triangulito (cliente del
-    // panel: x0, y0, x1, y1; vacia si la cascada no se muestra).
-    bool transformOpen_ = true;
+    // Estado de las cascadas del panel: una por categoria (Appearance,
+    // Data, Transform, Pivot, Collision) y, dentro de Transform/Pivot,
+    // una por fila. tri*_ es la zona de click del triangulito (cliente
+    // del panel: x0, y0, x1, y1; vacia si la cascada no se muestra).
+    bool catOpen_[5] = {true, true, true, true, true};
     bool rowOpen_[3] = {false, false, false};
-    int triTransform_[4] = {};
+    bool pivotRowOpen_[2] = {false, false};
+    int triCat_[5][4] = {};
     int triRow_[3][4] = {};
+    int triPivotRow_[2][4] = {};
     // Ultimo texto de los resumenes "x, y, z" (ids 300..302).
     std::string summaryText_[3];
+    // Resumenes "x, y, z" de las filas del Pivot (ids 310..311).
+    std::string pivotSummaryText_[2];
+    // Si es false no se muestran las categorias (seleccion vacia: solo
+    // las Parts tienen propiedades).
+    bool showCategories_ = true;
+    // Ultimo texto valido de Reflectance/Transparency (410..411) y de
+    // los campos Pivot (500..505): se restaura si la edicion no es un
+    // numero o no hay objeto seleccionado.
+    std::string floatText_[2];
+    std::string pivotText_[6];
+    // Fondos de las cajitas (bandas zebra + bordes) en coordenadas de
+    // contenido y desplazamiento vertical del panel con scroll.
+    std::vector<RowBand> bands_;
+    std::vector<RECT> boxes_;
+    int scrollY_ = 0;
+    int scrollContent_ = 0;
     std::function<void(const std::string&)> onSelectionChanged_;
     std::function<void(const std::string&, int, float)> onTransformEdited_;
     std::function<bool(const std::string&, const std::string&)> onNameEdited_;
+    std::function<void(const std::string&, int, bool)> onBoolEdited_;
+    std::function<void(const std::string&, int, float)> onFloatEdited_;
+    std::function<void(const std::string&, int, float)> onPivotEdited_;
 };
 
 } // namespace sk

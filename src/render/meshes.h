@@ -18,7 +18,7 @@ struct MeshVertex {
 
 // Numero de formas con malla propia (comprobado contra
 // Shape::Count con un static_assert en renderer.cpp).
-inline constexpr int kShapeMeshes = 6;
+inline constexpr int kShapeMeshes = 7;
 
 // Genera la malla low-poly de la forma, centrada en el origen y
 // contenida en la caja unitaria [-0.5, 0.5]^3: el SceneObject la

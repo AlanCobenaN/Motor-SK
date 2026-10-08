@@ -85,7 +85,6 @@ private:
                            VkPipeline* outPipeline);
     bool createPipelines();
     bool createGridBuffers();
-    bool createGridBuffers();
     bool createShapeBuffers();     // una malla por forma (kShapeMeshes)
     bool createOutlineBuffers();  // contorno celeste + cuadrado marquee
     bool createGizmoBuffers();    // buffers por frame para las lineas

@@ -39,6 +39,7 @@ const char* shapeName(Shape shape) {
         case Shape::Cylinder:   return "cilindro";
         case Shape::Wedge:      return "cuna";
         case Shape::CornerWedge:return "cuna-esquina";
+        case Shape::Capsule:    return "capsula";
         case Shape::Cube:
         default:                return "cubo";
     }
@@ -50,6 +51,7 @@ Shape shapeFromName(const std::string& name) {
     if (name == "cilindro") return Shape::Cylinder;
     if (name == "cuna") return Shape::Wedge;
     if (name == "cuna-esquina") return Shape::CornerWedge;
+    if (name == "capsula") return Shape::Capsule;
     return Shape::Cube;
 }
 
@@ -77,6 +79,29 @@ bool Scene::renameObject(const std::string& oldName,
     if (!object) return false;
     object->name = newName;
     return true;
+}
+
+bool Scene::removeObject(const std::string& name) {
+    for (auto it = objects_.begin(); it != objects_.end(); ++it) {
+        if (it->name == name) {
+            objects_.erase(it);
+            return true;
+        }
+    }
+    return false;
+}
+
+SceneObject& Scene::addCopy(const SceneObject& src, const Vec3& offset) {
+    SceneObject obj = src;
+    size_t index = objects_.size();
+    obj.name = index == 0 ? "Part" : "Part" + std::to_string(index);
+    while (findByName(obj.name)) {
+        ++index;
+        obj.name = "Part" + std::to_string(index);
+    }
+    obj.position = src.position + offset;
+    objects_.push_back(std::move(obj));
+    return objects_.back();
 }
 
 namespace {
@@ -147,6 +172,22 @@ bool Scene::loadFromFile(const std::string& path) {
             current.shape = shapeFromName(value);
         } else if (key == "script") {
             current.script = value;
+        } else if (key == "castshadow") {
+            current.castShadow = (value == "true" || value == "1");
+        } else if (key == "reflectance") {
+            current.reflectance = std::strtof(value.c_str(), nullptr);
+        } else if (key == "transparency") {
+            current.transparency = std::strtof(value.c_str(), nullptr);
+        } else if (key == "locked") {
+            current.locked = (value == "true" || value == "1");
+        } else if (key == "pivotposition") {
+            parseVec3(value, current.pivotPosition);
+        } else if (key == "pivotrotation") {
+            parseVec3(value, current.pivotRotation);
+        } else if (key == "cancollide") {
+            current.canCollide = (value == "true" || value == "1");
+        } else if (key == "anchored") {
+            current.anchored = (value == "true" || value == "1");
         }
     }
     if (haveObject) objects_.push_back(current);
@@ -171,6 +212,14 @@ bool Scene::saveToFile(const std::string& path) const {
         writeVec3(file, "escala", object.scale);
         file << "forma: " << shapeName(object.shape) << "\n";
         if (!object.script.empty()) file << "script: " << object.script << "\n";
+        file << "castshadow: " << (object.castShadow ? "true" : "false") << "\n";
+        file << "reflectance: " << object.reflectance << "\n";
+        file << "transparency: " << object.transparency << "\n";
+        file << "locked: " << (object.locked ? "true" : "false") << "\n";
+        writeVec3(file, "pivotposition", object.pivotPosition);
+        writeVec3(file, "pivotrotation", object.pivotRotation);
+        file << "cancollide: " << (object.canCollide ? "true" : "false") << "\n";
+        file << "anchored: " << (object.anchored ? "true" : "false") << "\n";
     }
     return file.good();
 }

@@ -18,6 +18,7 @@ enum class Shape : int {
     Cylinder,      // cilindro con el eje en X (como en Roblox)
     Wedge,         // cuna: prisma triangular con la pendiente en +Z
     CornerWedge,   // cuna de esquina: tetraedro de 3 tri. rectos
+    Capsule,       // capsula: cilindro con casquetes semiesfericos
     Count,
 };
 
@@ -38,6 +39,22 @@ struct SceneObject {
     Vec3 scale{1.0f, 1.0f, 1.0f};
     Shape shape = Shape::Cube;
     std::string script; // rel bajo scripts/ ("Server/Saludo.sk")
+
+    // Appearance
+    bool castShadow = true;
+    float reflectance = 0.0f;   // 0.00 a 1.00
+    float transparency = 0.0f;  // 0.00 a 1.00
+
+    // Data
+    bool locked = false;
+
+    // Pivot (origen de la part, independiente de position)
+    Vec3 pivotPosition{};
+    Vec3 pivotRotation{};  // grados en los ejes X/Y/Z
+
+    // Collision
+    bool canCollide = true;
+    bool anchored = false;
 
     // T * Rx * Ry * Rz * S (las rotaciones se aplican en este orden).
     Mat4 modelMatrix() const;
@@ -62,6 +79,14 @@ public:
     // origen exista y que el destino este vacio: devuelve false sin
     // tocar nada en caso contrario.
     bool renameObject(const std::string& oldName, const std::string& newName);
+
+    // Elimina un objeto por nombre. Devuelve false si no existe.
+    bool removeObject(const std::string& name);
+
+    // Duplica un objeto: copia todos sus campos con un nombre nuevo
+    // (Part, Part1...) y su posicion desplazada por "offset". Devuelve
+    // una referencia al nuevo objeto.
+    SceneObject& addCopy(const SceneObject& src, const Vec3& offset);
 
     const std::vector<SceneObject>& objects() const { return objects_; }
     std::vector<SceneObject>& objects() { return objects_; }

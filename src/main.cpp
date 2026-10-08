@@ -244,11 +244,11 @@ int main(int argc, char** argv) {
         if (!object) return;
         const int row = (id - 200) / 3;
         const int axis = (id - 200) % 3;
-        static const char* kRows[] = {"posicion", "rotacion", "escala"};
+        static const char* kRows[] = {"position", "size", "orientation"};
         static const char* kAxes[] = {"x", "y", "z"};
         sk::Vec3* target = &object->position;
-        if (row == 1) target = &object->rotation;
-        else if (row == 2) target = &object->scale;
+        if (row == 1) target = &object->scale;          // Size
+        else if (row == 2) target = &object->rotation;  // Orientation
         (&target->x)[axis] = value;
         saveScene();
         place.showObject(*object);
@@ -276,6 +276,53 @@ int main(int argc, char** argv) {
         }
         code.refreshProperties(); // "Asociado a" en CODE
         return true;
+    });
+
+    // Properties checkboxes (ids del panel: 400 CastShadow, 401 Locked,
+    // 402 CanCollide, 403 Anchored): se aplican al objeto y se guarda.
+    place.setOnBoolEdited([&](const std::string& name, int id, bool value) {
+        sk::SceneObject* object = scene.findByName(name);
+        if (!object) return;
+        const char* field = nullptr;
+        switch (id) {
+        case 400: object->castShadow = value; field = "CastShadow"; break;
+        case 401: object->locked = value; field = "Locked"; break;
+        case 402: object->canCollide = value; field = "CanCollide"; break;
+        case 403: object->anchored = value; field = "Anchored"; break;
+        default: return;
+        }
+        saveScene();
+        SK_INFO("Properties %s: %s = %s", name.c_str(), field,
+                value ? "true" : "false");
+    });
+
+    // Properties Reflectance (410) / Transparency (411): el panel ya
+    // reclama el valor a 0..1; aqui se aplica y se reescriben los campos.
+    place.setOnFloatEdited([&](const std::string& name, int id, float value) {
+        sk::SceneObject* object = scene.findByName(name);
+        if (!object) return;
+        if (id == 410) object->reflectance = value;
+        else if (id == 411) object->transparency = value;
+        else return;
+        saveScene();
+        place.showObject(*object);
+        SK_INFO("Properties %s: %s = %.2f", name.c_str(),
+                id == 410 ? "Reflectance" : "Transparency", value);
+    });
+
+    // Properties Pivot (500..502 Position, 503..505 Orientation): mueve
+    // el origen de la part sin tocar su position en el mundo.
+    place.setOnPivotEdited([&](const std::string& name, int id, float value) {
+        sk::SceneObject* object = scene.findByName(name);
+        if (!object) return;
+        const int idx = id - 500;
+        if (idx < 0 || idx >= 6) return;
+        sk::Vec3* target =
+            idx < 3 ? &object->pivotPosition : &object->pivotRotation;
+        (&target->x)[idx % 3] = value;
+        saveScene();
+        place.showObject(*object);
+        SK_INFO("Properties %s: pivot[%d] = %.3g", name.c_str(), idx, value);
     });
 
     // CODE: el panel Properties consulta el objeto asociado a un script.
@@ -329,6 +376,22 @@ int main(int argc, char** argv) {
     bool escWasDown = false;
     bool camKeysWasDown = false;
     int toolKeyWasDown = 0;
+    bool deleteKeyWasDown = false;
+    // Portapapeles interno de Parts (Ctrl+C/X) y estado de flancos de los
+    // atajos de copia/pega/clonado/rotacion.
+    std::vector<sk::SceneObject> clipboard;
+    bool clipboardFromCut = false;
+    bool copyKeyWasDown = false;
+    bool pasteKeyWasDown = false;
+    bool cutKeyWasDown = false;
+    bool dupKeyWasDown = false;
+    bool rotYKeyWasDown = false;
+    bool rotXKeyWasDown = false;
+    auto edge = [](bool now, bool& was) {
+        const bool rising = now && !was;
+        was = now;
+        return rising;
+    };
 
     // Arrastre de seleccion (marquee) en el viewport de PLACE.
     bool dragPending = false;  // pressed dentro del viewport, sin mover
@@ -503,6 +566,26 @@ int main(int argc, char** argv) {
         }
         toolKeyWasDown = toolKeyNow;
 
+        // Suprimir / Retroceso: elimina la parte o todas las partes
+        // seleccionadas (solo con la ventana enfocada, en PLACE, sin
+        // escribir en un campo y sin un arrastre en curso).
+        const bool delKeyDown =
+            window.hasFocus() && !window.textInputFocused() &&
+            workspace.visible() && place.visible() && !gizmoDrag.active &&
+            !objDragActive &&
+            (window.keyDown(VK_DELETE) || window.keyDown(VK_BACK));
+        if (delKeyDown && !deleteKeyWasDown && !selection.empty()) {
+            const std::vector<std::string> removed = selection;
+            for (const std::string& name : removed) {
+                scene.removeObject(name);
+                place.removeTreeItem(name);
+            }
+            applySelection({}, "");
+            saveScene();
+            SK_INFO("Eliminados %d objetos", static_cast<int>(removed.size()));
+        }
+        deleteKeyWasDown = delKeyDown;
+
         const float aspect = (window.framebufferHeight() > 0)
             ? static_cast<float>(window.framebufferWidth()) /
               static_cast<float>(window.framebufferHeight())
@@ -515,6 +598,125 @@ int main(int argc, char** argv) {
         const int vpH = window.framebufferHeight();
         const std::optional<sk::Vec2> pressed = window.consumeLeftPressed();
         const std::optional<sk::Vec2> released = window.consumeLeftReleased();
+
+        // --- Portapapeles y rotacion (Ctrl+C/X/V/D/R/T) ---
+        {
+            const bool ctrlDown = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+            const bool ok = window.hasFocus() && !window.textInputFocused() &&
+                            workspace.visible() && place.visible() &&
+                            !gizmoDrag.active && !objDragActive;
+
+            // Copiar (Ctrl+C): la seleccion va al portapapeles interno.
+            const bool copyDown = ok && ctrlDown && window.keyDown('C');
+            if (edge(copyDown, copyKeyWasDown) && !selection.empty()) {
+                clipboard.clear();
+                for (const std::string& name : selection) {
+                    if (const sk::SceneObject* object = scene.findByName(name)) {
+                        clipboard.push_back(*object);
+                    }
+                }
+                clipboardFromCut = false;
+                SK_INFO("Copiados %d objeto(s)", static_cast<int>(clipboard.size()));
+            }
+
+            // Cortar (Ctrl+X): copia y borra; el pegado posterior va al raton.
+            const bool cutDown = ok && ctrlDown && window.keyDown('X');
+            if (edge(cutDown, cutKeyWasDown) && !selection.empty()) {
+                clipboard.clear();
+                for (const std::string& name : selection) {
+                    if (const sk::SceneObject* object = scene.findByName(name)) {
+                        clipboard.push_back(*object);
+                    }
+                }
+                clipboardFromCut = true;
+                const std::vector<std::string> removed = selection;
+                for (const std::string& name : removed) {
+                    scene.removeObject(name);
+                    place.removeTreeItem(name);
+                }
+                applySelection({}, "");
+                saveScene();
+                SK_INFO("Cortados %d objeto(s)", static_cast<int>(removed.size()));
+            }
+
+            // Pegar (Ctrl+V): si vino de copiar, encima del original; si
+            // vino de cortar, bajo el puntero.
+            const bool pasteDown = ok && ctrlDown && window.keyDown('V');
+            if (edge(pasteDown, pasteKeyWasDown) && !clipboard.empty()) {
+                sk::Vec3 mouseOffset{};
+                if (clipboardFromCut) {
+                    const float planeY = clipboard.front().position.y;
+                    const sk::Ray ray = sk::rayFromCamera(
+                        camera, aspect, 60.0f, window.mousePos(), vpW, vpH);
+                    if (std::fabs(ray.dir.y) > 1e-6f) {
+                        const float t = (planeY - ray.origin.y) / ray.dir.y;
+                        if (t > 0.0f) {
+                            const sk::Vec3 hit = ray.origin + ray.dir * t;
+                            mouseOffset = {hit.x - clipboard.front().position.x,
+                                           0.0f,
+                                           hit.z - clipboard.front().position.z};
+                        }
+                    }
+                }
+                std::vector<std::string> newNames;
+                for (const sk::SceneObject& src : clipboard) {
+                    const sk::Vec3 off = clipboardFromCut
+                                             ? mouseOffset
+                                             : sk::Vec3{0.0f, 1.0f, 0.0f};
+                    sk::SceneObject& copy = scene.addCopy(src, off);
+                    place.addObject(copy.name);
+                    newNames.push_back(copy.name);
+                }
+                if (!newNames.empty()) {
+                    applySelection(newNames, newNames.back());
+                    saveScene();
+                    SK_INFO("Pegados %d objeto(s)", static_cast<int>(newNames.size()));
+                }
+            }
+
+            // Clonar en el sitio (Ctrl+D).
+            const bool dupDown = ok && ctrlDown && window.keyDown('D');
+            if (edge(dupDown, dupKeyWasDown) && !selection.empty()) {
+                const std::vector<std::string> src = selection;
+                std::vector<std::string> newNames;
+                for (const std::string& name : src) {
+                    const sk::SceneObject* object = scene.findByName(name);
+                    if (!object) continue;
+                    sk::SceneObject& copy = scene.addCopy(*object, sk::Vec3{});
+                    place.addObject(copy.name);
+                    newNames.push_back(copy.name);
+                }
+                if (!newNames.empty()) {
+                    applySelection(newNames, newNames.back());
+                    saveScene();
+                    SK_INFO("Clonados %d objeto(s)", static_cast<int>(newNames.size()));
+                }
+            }
+
+            // Rotar 90 grados: Ctrl+R en Y, Ctrl+T en X.
+            const bool rotYDown = ok && ctrlDown && window.keyDown('R');
+            if (edge(rotYDown, rotYKeyWasDown) && !selection.empty()) {
+                for (const std::string& name : selection) {
+                    if (sk::SceneObject* object = scene.findByName(name)) {
+                        object->rotation.y += 90.0f;
+                    }
+                }
+                saveScene();
+                applySelection(selection, primary);
+                SK_INFO("Rotado +90 en Y");
+            }
+            const bool rotXDown = ok && ctrlDown && window.keyDown('T');
+            if (edge(rotXDown, rotXKeyWasDown) && !selection.empty()) {
+                for (const std::string& name : selection) {
+                    if (sk::SceneObject* object = scene.findByName(name)) {
+                        object->rotation.x += 90.0f;
+                    }
+                }
+                saveScene();
+                applySelection(selection, primary);
+                SK_INFO("Rotado +90 en X");
+            }
+        }
 
         // --- Gizmo de herramientas: estado, hover y arrastre ---
         const int tool = workspace.tool();
@@ -597,11 +799,23 @@ int main(int argc, char** argv) {
                 pressAxis = sk::hitTestGizmo(probe, *pressed, viewProj, vpW, vpH);
             }
             if (pressAxis >= 0) {
-                const sk::Ray ray =
-                    sk::rayFromCamera(camera, aspect, 60.0f, *pressed, vpW, vpH);
-                startedGizmo = sk::gizmoBegin(gizmoDrag, tool, pressAxis, scene,
-                                              selection, gizmoOrigin, gizmoScaleMax,
-                                              gizmoViewDir, ray);
+                // Part bloqueada (Locked): no se arrastra con el raton,
+                // aunque sus campos Transform sigan siendo editables.
+                bool anyLocked = false;
+                for (const std::string& name : selection) {
+                    const sk::SceneObject* object = scene.findByName(name);
+                    if (object && object->locked) {
+                        anyLocked = true;
+                        break;
+                    }
+                }
+                if (!anyLocked) {
+                    const sk::Ray ray = sk::rayFromCamera(
+                        camera, aspect, 60.0f, *pressed, vpW, vpH);
+                    startedGizmo = sk::gizmoBegin(
+                        gizmoDrag, tool, pressAxis, scene, selection,
+                        gizmoOrigin, gizmoScaleMax, gizmoViewDir, ray);
+                }
                 if (startedGizmo) {
                     // El arrastre del gizmo sustituye al marquee.
                     dragPending = false;
@@ -754,41 +968,54 @@ int main(int argc, char** argv) {
             if (std::abs(pos.x - dragStart.x) > thX ||
                 std::abs(pos.y - dragStart.y) > thY) {
                 if (!pressHit.empty()) {
-                    // Es el cuerpo de un parte: arrastre de objeto en vez
-                    // de marquee (si no estaba seleccionado, pasa a serlo).
-                    if (std::find(selection.begin(), selection.end(),
-                                  pressHit) == selection.end()) {
-                        applySelection({pressHit}, pressHit);
-                    }
-                    objDragActive = true;
-                    objDragStart.clear();
-                    for (const std::string& name : selection) {
-                        if (const sk::SceneObject* object =
-                                scene.findByName(name)) {
+                    const sk::SceneObject* pressedObj =
+                        scene.findByName(pressHit);
+                    if (pressedObj && pressedObj->locked) {
+                        // Part Locked: el cuerpo no inicia arrastre.
+                        dragPending = false;
+                        SK_INFO("drag %s: bloqueada (Locked)",
+                                pressHit.c_str());
+                    } else {
+                        // Es el cuerpo de un parte: arrastre de objeto en
+                        // vez de marquee (si no estaba seleccionado, pasa
+                        // a serlo).
+                        if (std::find(selection.begin(), selection.end(),
+                                      pressHit) == selection.end()) {
+                            applySelection({pressHit}, pressHit);
+                        }
+                        objDragActive = true;
+                        objDragStart.clear();
+                        for (const std::string& name : selection) {
+                            const sk::SceneObject* object =
+                                scene.findByName(name);
+                            // Un parte Locked no viaja con el arrastre.
+                            if (!object || object->locked) continue;
                             objDragStart.push_back(
                                 {name, object->position, object->rotation});
                         }
-                    }
-                    // Punto de agarre (donde se pulso sobre el cuerpo)
-                    // menos el centro del lead: fija la posicion del
-                    // grupo respecto al puntero durante todo el arrastre.
-                    const sk::Ray ray0 = sk::rayFromCamera(
-                        camera, aspect, 60.0f, dragStart, vpW, vpH);
-                    const sk::SceneObject* hitObj = scene.findByName(pressHit);
-                    grabOffset = {};
-                    if (hitObj) {
-                        sk::Vec3 grabPoint{};
-                        sk::Vec3 grabNormal{};
-                        if (sk::rayObjectFace(*hitObj, ray0, grabPoint,
-                                              grabNormal)) {
-                            grabOffset = grabPoint - hitObj->position;
+                        // Punto de agarre (donde se pulso sobre el cuerpo)
+                        // menos el centro del lead: fija la posicion del
+                        // grupo respecto al puntero durante todo el
+                        // arrastre.
+                        const sk::Ray ray0 = sk::rayFromCamera(
+                            camera, aspect, 60.0f, dragStart, vpW, vpH);
+                        const sk::SceneObject* hitObj =
+                            scene.findByName(pressHit);
+                        grabOffset = {};
+                        if (hitObj) {
+                            sk::Vec3 grabPoint{};
+                            sk::Vec3 grabNormal{};
+                            if (sk::rayObjectFace(*hitObj, ray0, grabPoint,
+                                                  grabNormal)) {
+                                grabOffset = grabPoint - hitObj->position;
+                            }
                         }
+                        snapLogged = false; // el primer frame registra la cara
+                        snapSurface.clear();
+                        snapNormal = {};
+                        dragPending = false;
+                        SK_INFO("drag %s: arrastre", pressHit.c_str());
                     }
-                    snapLogged = false; // el primer frame registra la cara
-                    snapSurface.clear();
-                    snapNormal = {};
-                    dragPending = false;
-                    SK_INFO("drag %s: arrastre", pressHit.c_str());
                 } else {
                     dragActive = true;
                     SK_INFO("marquee (%d,%d)-(%d,%d)",

@@ -37,6 +37,7 @@ add_executable(${PROJECT_NAME}
     src/scene/snapping.cpp
     src/ui/code_view.cpp
     src/render/renderer.cpp
+    src/render/meshes.cpp
     src/ui/projects_panel.cpp
     src/ui/dark_button.cpp
     src/ui/prompt.cpp

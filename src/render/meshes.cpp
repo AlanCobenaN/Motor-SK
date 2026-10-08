@@ -189,6 +189,53 @@ void buildCornerWedge(std::vector<MeshVertex>& out) {
     pushTri(out, b, c, v); // pendiente
 }
 
+// Capsula con el eje en X: cilindro (radio 0.4, mitad 0.1) con dos
+// casquetes semiesfericos. Total: 1.0 de largo (de -0.5 a +0.5).
+void buildCapsule(std::vector<MeshVertex>& out) {
+    constexpr int kSeg = 8;
+    constexpr int kCapBands = 3;
+    constexpr float kR = 0.4f;
+    constexpr float kHalf = 0.1f;
+    const auto ring = [](int s, float x, float r) {
+        const float t = 2.0f * kPi * static_cast<float>(s) / kSeg;
+        return Vec3{x, r * std::cos(t), r * std::sin(t)};
+    };
+    out.reserve(out.size() + 240);
+    // Cuerpo cilindrico.
+    for (int s = 0; s < kSeg; ++s) {
+        pushQuad(out, ring(s, -kHalf, kR), ring(s + 1, -kHalf, kR),
+                 ring(s + 1, kHalf, kR), ring(s, kHalf, kR));
+    }
+    // Casquetes: dos semiesferas en los extremos.
+    for (int cap = 0; cap < 2; ++cap) {
+        const float dir = (cap == 0) ? -1.0f : 1.0f;
+        const auto vtx = [&](int s, float phi) {
+            const float t = 2.0f * kPi * static_cast<float>(s) / kSeg;
+            const float r = kR * std::cos(phi);
+            return Vec3{dir * (kHalf + kR * std::sin(phi)), r * std::cos(t),
+                        r * std::sin(t)};
+        };
+        for (int b = 0; b < kCapBands; ++b) {
+            const float phi0 =
+                0.5f * kPi * static_cast<float>(b) / kCapBands;
+            const float phi1 =
+                0.5f * kPi * static_cast<float>(b + 1) / kCapBands;
+            for (int s = 0; s < kSeg; ++s) {
+                const Vec3 p00 = vtx(s, phi0);
+                const Vec3 p01 = vtx(s + 1, phi0);
+                const Vec3 p10 = vtx(s, phi1);
+                const Vec3 p11 = vtx(s + 1, phi1);
+                if (b == kCapBands - 1) {
+                    pushTri(out, p00, p10, p01); // p10 == p11 (polo)
+                } else {
+                    pushTri(out, p00, p10, p11);
+                    pushTri(out, p00, p11, p01);
+                }
+            }
+        }
+    }
+}
+
 } // namespace
 
 void buildShapeMesh(Shape shape, std::vector<MeshVertex>& out) {
@@ -207,6 +254,9 @@ void buildShapeMesh(Shape shape, std::vector<MeshVertex>& out) {
             break;
         case Shape::CornerWedge:
             buildCornerWedge(out);
+            break;
+        case Shape::Capsule:
+            buildCapsule(out);
             break;
         case Shape::Cube:
         default:

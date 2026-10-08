@@ -1038,9 +1038,7 @@ bool Renderer::drawFrame(const Mat4& viewProj, const std::vector<Mat4>& objects,
         for (int shape = 0; shape < kShapeMeshes; ++shape) {
             bool bound = false;
             for (size_t i = 0; i < objects.size(); ++i) {
-                int objShape = (i < shapes.size()) ? shapes[i] : 0; if (objShape < 0 || objShape >= kShapeMeshes) objShape = 0; if (objShape != shape) continue;
-                if (objShape < 0 || objShape >= kShapeMeshes) objShape = 0;
-        if (id < 0 || id >= kShapeMeshes) objShape = 0;
+                int objShape = (i < shapes.size()) ? shapes[i] : 0;
                 if (objShape < 0 || objShape >= kShapeMeshes) objShape = 0;
                 if (objShape != shape) continue;
                 if (!bound) {
