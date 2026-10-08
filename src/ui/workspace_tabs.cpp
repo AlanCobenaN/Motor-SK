@@ -38,7 +38,7 @@ const ToolButton kToolButtons[] = {
 };
 // El boton "Part" es una tarjeta igualada a las demas (mismo alto y
 // ancho, icono arriba y nombre abajo).
-constexpr int kPartX = 250;
+constexpr int kPartX = 268;
 constexpr int kPartWidth = 52;
 constexpr int kRowY = 2;
 constexpr int kRowHeight = 52;
@@ -49,16 +49,18 @@ constexpr int kPartHeight = 52;
 constexpr int kPartMenuWidth = 18;
 constexpr int kPartMenuX = kPartX + kPartWidth + 3;
 
-// Rallita divisoria entre Rotate (termina en x=242) y Cube (x=250).
-constexpr int kDividerX = 244;
-constexpr int kDividerW = 6;
+// Rallita divisoria entre Rotate (termina en x=242) y Cube (x=268), en
+// medio de un hueco de 26px para que la separacion se sienta (9px de
+// aire a cada lado de la linea).
+constexpr int kDividerX = 251;
+constexpr int kDividerW = 8;
 
 // Dos cajitas de pasos despues del triangulo del boton Part: la de
 // arriba es el paso de mover/escalar/arrastrar (flechas, "cm"/"m") y la
 // de abajo el paso de rotacion (logo de rotar, grados enteros con "\xb0").
 // Cada cajita tiene un STATIC owner-draw de fondo (caja + icono) y un
 // EDIT encima a la derecha del icono.
-constexpr int kFieldX = 332;
+constexpr int kFieldX = 350;
 constexpr int kFieldW = 108;
 constexpr int kFieldH = 22;
 constexpr int kFieldYTop = 4;
