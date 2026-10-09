@@ -112,6 +112,17 @@ Ejecutable `.exe` con:
         duplicado)
 - [x] Foco de camara (F): enfoca la seleccion (centro y tamano de todo el
         grupo) reorientando la vista y ajustando la distancia
+- [x] Barra de menus: boton "Archivo" desplegable en la banda (Cerrar,
+        Guardar, Guardar como, Importar .scene, Importar como, Salir;
+        Configuracion del editor / Personalizar atajos / Abrir guardados
+        automaticos como dialogos informativos); la banda pasa a 116px con
+        la fila de menus encima de la barra de herramientas
+- [x] Explorer jerarquico: triangulitos de cascada propios (mismo estilo que
+        Properties) para plegar/desplegar los objetos anidados, y arrastrar
+        un objeto sobre otro lo anida como hijo (soltarlo sobre `dimension01`
+        lo devuelve a la raiz); la escena persiste `parent:` de cada objeto y
+        borrar/cortar/renombrar/pegar/clonar/importar/deshacer respetan la
+        jerarquia (sin ciclos; el render todavia usa posiciones absolutas)
 
 ## Fase 2 — Render básico
 

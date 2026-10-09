@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -168,6 +169,11 @@ int main(int argc, char** argv) {
         for (std::string& name : selection) {
             if (name == oldName) name = newName;
         }
+        // Si el renombrado era el padre de otros, su nombre sigue a los
+        // hijos en la jerarquia.
+        for (sk::SceneObject& object : scene.objects()) {
+            if (object.parent == oldName) object.parent = newName;
+        }
         place.renameTreeItem(oldName, newName);
         saveScene();
         SK_INFO("Part renombrado: %s -> %s", oldName.c_str(), newName.c_str());
@@ -191,10 +197,7 @@ int main(int argc, char** argv) {
         scene.loadFromFile(scenePath(active));
         undoStack.clear(); // cada proyecto parte con historia nueva
         redoStack.clear();
-        place.clearObjects();   // Explorer vuelve a solo dimension01
-        for (const sk::SceneObject& object : scene.objects()) {
-            place.addObject(object.name); // la ultima queda seleccionada
-        }
+        place.rebuildTree(scene.objects());  // Explorer con la jerarquia
         view3d = true;
         panel.setVisible(false);
         workspace.setVisible(true);
@@ -363,19 +366,34 @@ int main(int argc, char** argv) {
             }
             captureState();
             std::vector<std::string> added;
+            std::map<std::string, std::string> nameMap;
+            // Primera pasada: copiar todos los objetos con nombre unico
+            // (y prefijo si viene de "Importar como").
             for (const sk::SceneObject& src : incoming.objects()) {
                 sk::SceneObject& copy = scene.addCopy(src, sk::Vec3{});
-                if (!prefix.empty()) {
-                    const std::string base = prefix + " " + src.name;
-                    std::string name = base;
-                    int n = 1;
-                    while (scene.findByName(name)) {
-                        name = base + std::to_string(++n);
-                    }
-                    copy.name = name;
+                const std::string base =
+                    prefix.empty() ? src.name : prefix + " " + src.name;
+                std::string name = base;
+                int n = 1;
+                while (scene.findByName(name)) {
+                    name = base + std::to_string(++n);
                 }
-                place.addObject(copy.name);
-                added.push_back(copy.name);
+                copy.name = name;
+                nameMap[src.name] = name;
+            }
+            // Segunda pasada: resolver los padres importados (el padre de
+            // un objeto fuera de la escena importada cae a la raiz).
+            for (const sk::SceneObject& src : incoming.objects()) {
+                sk::SceneObject* copy = scene.findByName(nameMap[src.name]);
+                if (!copy) continue;
+                auto parent = nameMap.find(src.parent);
+                copy->parent = src.parent.empty()
+                                   ? std::string()
+                                   : (parent != nameMap.end()
+                                          ? parent->second
+                                          : std::string());
+                place.addObject(copy->name, copy->parent);
+                added.push_back(copy->name);
             }
             saveScene();
             if (!added.empty()) applySelection(added, added.back());
@@ -669,14 +687,66 @@ int main(int argc, char** argv) {
         return p.x >= x0 && p.x <= x1 && p.y >= y0 &&
                p.y <= static_cast<float>(window.framebufferHeight());
     };
-    // Vuelve a construir el Explorer tras deshacer/rehacer: las Parts
-    // pueden haber cambiado de nombre, forma o desaparecido.
-    auto rebuildExplorer = [&]() {
-        place.clearObjects();
+// Vuelve a construir el Explorer tras deshacer/rehacer o re-agrupar:
+// las Parts pueden haber cambiado de nombre, forma o jerarquia.
+auto rebuildExplorer = [&]() {
+    place.rebuildTree(scene.objects());
+};
+
+// Nombres de un objeto y de todos sus descendientes (para borrar o
+// cortar: quitar un padre se lleva su jerarquia detras).
+auto collectSubtree = [&](const std::string& name) {
+    std::vector<std::string> out{name};
+    for (size_t i = 0; i < out.size(); ++i) {
         for (const sk::SceneObject& object : scene.objects()) {
-            place.addObject(object.name);
+            if (object.parent == out[i] &&
+                std::find(out.begin(), out.end(), object.name) == out.end()) {
+                out.push_back(object.name);
+            }
         }
-    };
+    }
+    return out;
+};
+auto collectAll = [&](const std::vector<std::string>& names) {
+    std::vector<std::string> out;
+    for (const std::string& name : names) {
+        for (const std::string& sub : collectSubtree(name)) {
+            if (std::find(out.begin(), out.end(), sub) == out.end()) {
+                out.push_back(sub);
+            }
+        }
+    }
+    return out;
+};
+
+// Re-agrupar desde el Explorer: suelta X sobre Y y Y queda dentro de X
+// (o vacio = vuelve a la raiz dimension01). Valida que el padre exista,
+// que no sea el propio hijo y que no se formen ciclos.
+place.setOnReparent([&](const std::string& child,
+                        const std::string& parent) {
+    if (!view3d || child.empty()) return;
+    sk::SceneObject* object = scene.findByName(child);
+    if (!object) return;
+    const std::string newParent = parent;
+    if (child == newParent) return;
+    if (!newParent.empty() && !scene.findByName(newParent)) return;
+    if (object->parent == newParent) return;
+    // Ciclo: el nuevo padre no puede ser descendiente del hijo.
+    std::string up = newParent;
+    while (!up.empty()) {
+        if (up == child) return;
+        const sk::SceneObject* node = scene.findByName(up);
+        up = node ? node->parent : std::string();
+    }
+    captureState();
+    object->parent = newParent;
+    saveScene();
+    rebuildExplorer();
+    applySelection({child}, child);
+    logProjection = true;
+    SK_INFO("Explorer: %s cuelga de %s", child.c_str(),
+            newParent.empty() ? "la raiz" : newParent.c_str());
+});
 
     // Aplica un snapshot: sustituye el contenido de la escena, deja la
     // seleccion en los nombres que siguen existiendo, pinta Properties y
@@ -817,7 +887,8 @@ int main(int argc, char** argv) {
             (window.keyDown(VK_DELETE) || window.keyDown(VK_BACK));
         if (delKeyDown && !deleteKeyWasDown && !selection.empty()) {
             captureState();
-            const std::vector<std::string> removed = selection;
+            // Borrar un padre se lleva a sus descendientes detras.
+            const std::vector<std::string> removed = collectAll(selection);
             for (const std::string& name : removed) {
                 scene.removeObject(name);
                 place.removeTreeItem(name);
@@ -865,21 +936,22 @@ int main(int argc, char** argv) {
             const bool cutDown = ok && ctrlDown && window.keyDown('X');
             if (edge(cutDown, cutKeyWasDown) && !selection.empty()) {
                 captureState();
+                const std::vector<std::string> removed = collectAll(selection);
                 clipboard.clear();
-                for (const std::string& name : selection) {
-                    if (const sk::SceneObject* object = scene.findByName(name)) {
-                        clipboard.push_back(*object);
+                for (const std::string& name : removed) {
+                    if (const sk::SceneObject* o = scene.findByName(name)) {
+                        clipboard.push_back(*o);
                     }
                 }
                 clipboardFromCut = true;
-                const std::vector<std::string> removed = selection;
                 for (const std::string& name : removed) {
                     scene.removeObject(name);
                     place.removeTreeItem(name);
                 }
                 applySelection({}, "");
                 saveScene();
-                SK_INFO("Cortados %d objeto(s)", static_cast<int>(removed.size()));
+                SK_INFO("Cortados %d objeto(s)",
+                        static_cast<int>(removed.size()));
             }
 
             // Pegar (Ctrl+V): si vino de copiar, encima del original; si
@@ -903,13 +975,33 @@ int main(int argc, char** argv) {
                     }
                 }
                 std::vector<std::string> newNames;
+                // Primera pasada: copiar los objetos (nombres unicos) y
+                // recordar la correspondencia viejo->nuevo de cada uno.
+                std::map<std::string, std::string> nameMap;
                 for (const sk::SceneObject& src : clipboard) {
                     const sk::Vec3 off = clipboardFromCut
                                              ? mouseOffset
                                              : sk::Vec3{0.0f, 1.0f, 0.0f};
                     sk::SceneObject& copy = scene.addCopy(src, off);
-                    place.addObject(copy.name);
-                    newNames.push_back(copy.name);
+                    nameMap[src.name] = copy.name;
+                }
+                // Segunda pasada: si el original colgaba de otro objeto
+                // copiado, la copia cuelga de la copia de su padre.
+                for (const sk::SceneObject& src : clipboard) {
+                    sk::SceneObject* copy = scene.findByName(nameMap[src.name]);
+                    if (!copy) continue;
+                    if (!src.parent.empty()) {
+                        auto it = nameMap.find(src.parent);
+                        copy->parent =
+                            it != nameMap.end()
+                                ? it->second
+                                : (scene.findByName(src.parent) ? src.parent
+                                                                : "");
+                    } else {
+                        copy->parent.clear();
+                    }
+                    place.addObject(copy->name, copy->parent);
+                    newNames.push_back(copy->name);
                 }
                 if (!newNames.empty()) {
                     applySelection(newNames, newNames.back());
@@ -928,7 +1020,8 @@ int main(int argc, char** argv) {
                     const sk::SceneObject* object = scene.findByName(name);
                     if (!object) continue;
                     sk::SceneObject& copy = scene.addCopy(*object, sk::Vec3{});
-                    place.addObject(copy.name);
+                    // El clon cuelga del mismo padre que el original.
+                    place.addObject(copy.name, copy.parent);
                     newNames.push_back(copy.name);
                 }
                 if (!newNames.empty()) {

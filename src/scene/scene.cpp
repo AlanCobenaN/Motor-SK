@@ -162,6 +162,8 @@ bool Scene::loadFromFile(const std::string& path) {
             haveObject = true;
         } else if (!haveObject) {
             continue; // "version" y claves sueltas antes del primer objeto
+        } else if (key == "parent") {
+            current.parent = value;
         } else if (key == "posicion") {
             parseVec3(value, current.position);
         } else if (key == "rotacion") {
@@ -207,6 +209,7 @@ bool Scene::saveToFile(const std::string& path) const {
     file << "version: 1\n";
     for (const SceneObject& object : objects_) {
         file << "objeto: " << object.name << "\n";
+        if (!object.parent.empty()) file << "parent: " << object.parent << "\n";
         writeVec3(file, "posicion", object.position);
         writeVec3(file, "rotacion", object.rotation);
         writeVec3(file, "escala", object.scale);

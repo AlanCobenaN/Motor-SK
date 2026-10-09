@@ -5,6 +5,7 @@
 #include <vector>
 
 #include <windows.h>
+#include <commctrl.h>
 
 #include "../scene/scene.h"
 
@@ -47,10 +48,17 @@ public:
     // desde WorkspaceTabs::kTopBandHeight hasta el borde inferior.
     void resize(int width, int height);
 
-    // Explorer: inserta un hijo bajo dimension01 y lo selecciona (lo que
-    // dispara onSelectionChanged). clearObjects quita todos los hijos
-    // y vuelve a seleccionar la raiz.
+    // Explorer: inserta un hijo bajo dimension01 (u otro padre si el
+    // arbol ya lo tiene) y lo selecciona (lo que dispara
+    // onSelectionChanged). clearObjects quita todos los hijos y vuelve
+    // a seleccionar la raiz.
     void addObject(const std::string& name);
+    void addObject(const std::string& name, const std::string& parent);
+
+    // Reconstruye todo el arbol a partir de los objetos y su jerarquia
+    // (parent): util tras cargar, deshacer/rehacer o re-agrupar. Los
+    // nombres deben ser unicos. Deja el caret en el ultimo objeto.
+    void rebuildTree(const std::vector<SceneObject>& objects);
     void clearObjects();
 
     // Properties: refresca el panel con el objeto, la raiz o el estado
@@ -75,6 +83,17 @@ public:
     // seleccion). El dueno decide que hacer con la escena.
     void setOnSelectionChanged(std::function<void(const std::string&)> cb) {
         onSelectionChanged_ = std::move(cb);
+    }
+
+    // Arrastrar un objeto del Explorer y soltarlo sobre otro: el objeto
+    // soltado (parent) absorbe al de debajo del cursor (child), que
+    // queda anidado dentro de el en el arbol. Si parent viene vacio el
+    // child vuelve a la raiz. El dueno valida (ciclos), muta la escena,
+    // guarda y reconstruye el arbol.
+    void setOnReparent(
+        std::function<void(const std::string& child,
+                           const std::string& parent)> cb) {
+        onReparent_ = std::move(cb);
     }
 
     // Campo Transform (ids 200..208) editado: el usuario tecleo un valor
@@ -130,6 +149,13 @@ public:
 private:
     static long long __stdcall wndProc(void* hwnd, unsigned int msg,
                                        unsigned long long wParam, long long lParam);
+    // Subclase del TreeView del Explorer: pinta los triangulitos de
+    // cascada y gestiona el drag & drop para re-agrupar.
+    static long long __stdcall treeSubclassProc(void* hwnd, unsigned int msg,
+                                                unsigned long long wParam,
+                                                long long lParam,
+                                                unsigned long long subclassId,
+                                                unsigned long long refData);
     void layoutPanels(int width, int height);
     void layoutProperties();
     void updateSummaries();
@@ -141,6 +167,11 @@ private:
     void* properties_ = nullptr;
     void* tree_ = nullptr;
     void* root_ = nullptr;   // HTREEITEM de dimension01
+    // Arrastre del Explorer: nodo en curso, nodo de destino (resaltado
+    // con TreeView_SelectDropTarget) y si el raton esta enganchado.
+    HTREEITEM dragItem_ = nullptr;
+    HTREEITEM dropTarget_ = nullptr;
+    bool dragging_ = false;
     bool visible_ = false;
     bool suppressNotify_ = false;  // syncTreeSelection mueve el caret a mano
     std::string selectedName_;   // objeto seleccionado ("" si no hay)
@@ -180,6 +211,7 @@ private:
     int scrollY_ = 0;
     int scrollContent_ = 0;
     std::function<void(const std::string&)> onSelectionChanged_;
+    std::function<void(const std::string&, const std::string&)> onReparent_;
     std::function<void(const std::string&, int, float)> onTransformEdited_;
     std::function<bool(const std::string&, const std::string&)> onNameEdited_;
     std::function<void(const std::string&, int, bool)> onBoolEdited_;

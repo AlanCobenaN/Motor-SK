@@ -34,6 +34,11 @@ Shape shapeFromName(const std::string& name);
 // "" si no hay).
 struct SceneObject {
     std::string name;   // nombre visible en el Explorer
+    // Nombre del padre en la jerarquia del Explorer ("" = raiz
+    // dimension01). Con esto los objetos pueden anidarse padres/hijos;
+    // el render aun usa position absoluto (la herencia de transform
+    // llegara en un proximo paso).
+    std::string parent;
     Vec3 position{};
     Vec3 rotation{};    // grados en los ejes X/Y/Z
     Vec3 scale{1.0f, 1.0f, 1.0f};
