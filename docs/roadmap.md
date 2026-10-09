@@ -22,10 +22,11 @@ Ejecutable `.exe` con:
 - [x] Abrir un proyecto → vista 3D (Esc vuelve al panel)
 - [x] Icono del programa (logo.ico embebido via app.rc): ventana, barra de
        tareas y Alt+Tab
-- [x] Banda superior en dos filas (86px): barra de atajos estilo Roblox con
-        el boton "Part" (anade un objeto 3D a la escena) y navbar compacta con
+- [x] Banda superior: fila de atajos estilo Roblox con el boton "Part" (anade
+        un objeto 3D a la escena) y navbar compacta con
         PLACE / CODE / GUI (botones redondeados, oscuro, texto blanco);
-        sin area vacia, la vista 3D ocupa el resto
+        sin area vacia, la vista 3D ocupa el resto; la banda completa son 116px
+        al incluir la fila de menus (ver "Barra de menus" mas abajo)
 - [x] Swapchain se recrea en cada resize (WM_SIZE avisa al renderer; sin
        depender de OUT_OF_DATE, que lavapipe no devuelve)
 - [x] Division PLACE: paneles Properties (Transform del objeto seleccionado)
@@ -83,7 +84,9 @@ Ejecutable `.exe` con:
 - [x] Rectangulo de arrastre del marquee alineado con el puntero (origen y
         tamano corregidos en el render, clamado al viewport)
 - [x] Botones de herramientas con el texto pintado una sola vez
-- [ ] Abrir un archivo/archivo de escena
+- [x] Abrir/importar un archivo de escena `.scene`: menú Archivo > Importar /
+        Importar como (con prefijo de nombre), incorpora los objetos a la
+        escena actual
 - [x] Cámara libre: WASD para moverse, click derecho para mirar, scroll para
        acercar/alejar
 - [x] Rejilla de referencia en el suelo (para percibir el movimiento)
@@ -95,12 +98,13 @@ Ejecutable `.exe` con:
         con ESC durante el movimiento y toggle con Ctrl; el marquee solo
         arranca desde el vacio
 - [x] Mediciones de la banda: tarjetas de herramientas de 56x52 con el
-        icono al 133%, triangulos de las cascadas al 125% y fuente de la
-        interfaz a 12px (banda superior de 86px)
+        icono al 133%, triangulos de cascada agrandados (zona de click amplia)
+        y fuente de la interfaz a 12px (banda superior de 116px)
 - [x] Properties en orden Nombre (EDIT editable: renombra el objeto en la
         escena y el Explorer, guarda y refresca; raiz `dimension01`
-        bloqueada) -> Parent (solo lectura, hoy `dimension01`, valor
-        atenuado en los campos estaticos) -> Transform
+        bloqueada) -> Parent (solo lectura, muestra el padre real; la raiz
+        `dimension01` si el objeto no esta anidado, valor atenuado en los
+        campos estaticos) -> Transform
 - [x] Deshacer/rehacer (Ctrl+Z para deshacer, Ctrl+Y o Ctrl+Shift+Z para
         rehacer): snapshot de la escena (objetos + seleccion) antes de
         cada mutacion de PLACE (anadir Part, campos de Properties,
@@ -134,9 +138,10 @@ Ejecutable `.exe` con:
 ## Fase 3 — Escenas y recursos
 
 - [x] Formato de escena propio (texto, versionado): `escenas/inicio.scene`
-       con `objeto/posicion/rotacion/escala/script`, version: 1, tolerante a
-       claves desconocidas; se carga al abrir el proyecto y se guarda en cada
-       mutacion (Part, asociacion, renombrar/borrar scripts)
+       con `objeto/posicion/rotacion/escala/script/parent`, version: 1,
+       tolerante a claves desconocidas; se carga al abrir el proyecto y se
+       guarda en cada mutacion (Part, asociacion, jerarquia,
+       renombrar/borrar scripts)
 - [ ] Carga de recursos (mallas, texturas)
 
 ## Futuro

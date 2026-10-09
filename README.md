@@ -5,12 +5,30 @@ rutas de portabilidad a Linux y Android.
 
 ## Estado actual
 
-Fase: **1 — ventana y cámara** (en curso). El `.exe` arranca en un **panel de
-proyectos** con interfaz **oscura** (fondo negro, texto blanco, botones
-redondeados) donde puedes crear, abrir, renombrar y borrar proyectos; al
-abrir uno entra la vista 3D con rejilla y cámara libre (WASD + Q/E para
-bajar/subir, click derecho para mirar, scroll para zoom). **Esc** vuelve al
-panel.
+Fase: **1 — ventana y cámara** (en curso, con una buena parte del editor ya en
+funcionamiento). El `.exe` arranca en un **panel de proyectos** con interfaz
+**oscura** (fondo negro, texto blanco, botones redondeados) donde puedes crear,
+abrir, renombrar y borrar proyectos; al abrir uno entra el **editor 3D**:
+
+- Vista 3D con rejilla y cámara libre (WASD + Q/E, click derecho para mirar,
+  scroll para zoom), **selección** (click, Ctrl+click y rectángulo marquee),
+  **gizmo** (mover/escalar/rotar), arrastre y **apilado** de objetos al estilo
+  Roblox.
+- **Banda superior** con menú **Archivo** (Cerrar, Guardar, Guardar como,
+  Importar/Importar como `.scene`, Salir y acceso a configuración/atajos/
+  autosaves informativos), **barra de herramientas** (Select, Move, Scale,
+  Rotate, Part con menú de formas) y pestañas **PLACE / CODE / GUI**.
+- **PLACE**: **Explorer** jerárquico a la derecha (triángulos para plegar/
+  desplegar y arrastrar un objeto sobre otro para anidarlo) y **Properties**
+  a la izquierda (Nombre editable, Parent real, Transform en cascadas,
+  Appearance/Data/Collision y Pivot).
+- Atajos: **1-4** herramientas, **Ctrl+Z/Y** deshacer/rehacer, **F12** renombrar,
+  **F** enfocar selección, **Ctrl+C/X/V/D** portapapeles y **Ctrl+R/T** rotar,
+  **Supr/Retroceso** borrar, **Esc** volver al panel.
+- **CODE**: organizador de ModelScripts (Server/Shared/Player/Character) con
+  editor de scripts y asociación a los objetos de la escena.
+- Todo persiste en la escena del proyecto (`escenas/inicio.scene`, texto
+  versionado con jerarquía `parent:`).
 
 | Componente | Versión | Notas |
 |---|---|---|
@@ -27,7 +45,7 @@ cmake -S . -B build
 cmake --build build --config Release
 ```
 
-El ejecutable queda en `build\MotorSK.exe`. Es una aplicación de Windows
+El ejecutable queda en `build\Release\MotorSK.exe`. Es una aplicación de Windows
 sin consola; para ver los logs redirige la salida:
 
 ```bat
@@ -63,10 +81,11 @@ Motor-SK/
 │   ├── math/           # vectores y matrices propios (estilo glm)
 │   ├── platform/       # ventana Win32 e input (capa portable)
 │   ├── project/        # modelo de proyecto (proyecto.sk, CRUD de carpetas)
-│   ├── scene/          # cámara libre
-│   ├── render/         # renderer Vulkan (swapchain, pipeline, rejilla)
-│   ├── ui/             # panel de proyectos (Win32 ListView)
-│   └── main.cpp        # bucle principal (menú ↔ vista 3D)
+│   ├── scene/          # cámara libre, escena (objetos), picking, gizmo y snapping
+│   ├── render/         # renderer Vulkan (swapchain, pipeline, rejilla, contorno)
+│   ├── ui/             # panel de proyectos, banda/menús, intercambio de datos,
+│   │                   # PlaceView (Properties + Explorer) y CodeView (scripts)
+│   └── main.cpp        # bucle principal e integración de todo el editor
 └── docs/               # documentación
 ```
 
