@@ -4,11 +4,25 @@
 
 namespace sk {
 
-// Barra superior de la vista 3D, en dos filas dentro de la misma ventana
+// Comandos del menu desplegable "Archivo" de la barra de menus. El dtype
+// pasa el id al dueno para que decida la accion.
+enum FileMenuId {
+    kFileClose = 1,
+    kFileSave = 2,
+    kFileSaveAs = 3,
+    kFileImport = 4,
+    kFileImportAs = 5,
+    kFileEditorSettings = 6,
+    kFileShortcuts = 7,
+    kFileAutosaves = 8,
+    kFileExit = 9,
+};
+
+// Barra superior de la vista 3D, en tres filas dentro de la misma ventana
 // hija:
-//  - fila de atajos (arriba): herramientas del viewport (Select /
-//    Move / Scale / Rotate, atajos 1-4) y el boton "Part", que anade
-//    un objeto 3D a la escena.
+//  - fila de menus (arriba): el boton "Archivo" con su desplegable.
+//  - fila de atajos: herramientas del viewport (Select / Move / Scale /
+//    Rotate, atajos 1-4) y el boton "Part", que anade un objeto 3D.
 //  - navbar (abajo): las tres divisiones del workspace (PLACE / CODE /
 //    GUI) como pestanas compactas.
 //
@@ -16,13 +30,15 @@ namespace sk {
 // ventana hija tiene wndProc propia), no a la ventana principal.
 class WorkspaceTabs {
 public:
-    // Fila de atajos (arriba): tarjetas compactas de 56x52 con el icono
-    // arriba y el nombre abajo; la navbar ocupa el resto (banda total
-    // de 86px).
+    // Fila de menus: boton "Archivo" a la izquierda.
+    static constexpr int kMenuBarHeight = 30;
+    // Fila de atajos: tarjetas compactas de 56x52 con el icono arriba y
+    // el nombre abajo; la navbar ocupa el resto (banda total de 116px).
     static constexpr int kShortcutHeight = 54;
     static constexpr int kNavbarHeight = 32;
     // Alto total de la banda: los paneles PLACE/CODE empiezan aqui.
-    static constexpr int kTopBandHeight = kShortcutHeight + kNavbarHeight;
+    static constexpr int kTopBandHeight =
+        kMenuBarHeight + kShortcutHeight + kNavbarHeight;
 
     bool create(void* parentHwnd);
     void destroy();
@@ -60,6 +76,13 @@ public:
     float moveStep() const { return moveStep_; }
     int rotateStep() const { return rotateStep_; }
 
+    // Menu "Archivo" de la barra de menus: se invoca con el id del
+    // comando elegido (kFileClose, kFileSave...). El desplegable se
+    // cierra antes de llamar.
+    void setOnFileCommand(std::function<void(int)> cb) {
+        onFileCommand_ = std::move(cb);
+    }
+
     // width/height son los de la ventana principal; la barra solo usa
     // kTopBandHeight de alto.
     void resize(int width, int height);
@@ -69,10 +92,13 @@ private:
                                        unsigned long long wParam, long long lParam);
     static long long __stdcall popupProc(void* hwnd, unsigned int msg,
                                          unsigned long long wParam, long long lParam);
+    static long long __stdcall filePopupProc(void* hwnd, unsigned int msg,
+                                             unsigned long long wParam, long long lParam);
     void selectTab(int index);
     void setPartShape(int shape);
     void updatePartLabel();
     void showShapeMenu(bool show);
+    void showFileMenu(bool show);
     void commitMoveField();
     void commitRotField();
 
@@ -89,6 +115,17 @@ private:
     static constexpr int kIdStepEditMove = 140; // cajitas de pasos (texto)
     static constexpr int kIdStepEditRot = 141;
 
+    // Boton "Archivo" de la fila de menus y su desplegable.
+    static constexpr int kIdFile = 150;
+    static constexpr int kFileX = 10;
+    static constexpr int kFileY = 3;
+    static constexpr int kFileW = 84;
+    static constexpr int kFileH = kMenuBarHeight - 6;
+    static constexpr int kFileMenuWidth = 220;
+    static constexpr int kFileMenuRow = 26;
+    static constexpr int kFileCount = 9;
+    static constexpr int kIdFileBase = 300;
+
     void* parent_ = nullptr;
     void* hwnd_ = nullptr;
     void* buttons_[kTabCount] = {};
@@ -100,16 +137,21 @@ private:
     void* divider_ = nullptr;          // rallita entre Rotate y Cube
     void* stepBoxes_[2] = {};          // cajitas de pasos (icono pintado)
     void* stepEdits_[2] = {};          // cajitas de pasos (texto)
+    void* fileButton_ = nullptr;       // boton "Archivo" de la fila de menus
+    void* fileMenu_ = nullptr;         // desplegable del menu Archivo
+    void* fileButtons_[kFileCount] = {};
     int active_ = 0;
     int tool_ = 0;
     int partShape_ = 0;
     float moveStep_ = 1.0f;   // paso mover/escalar/arrastrar (mundo)
     int rotateStep_ = 15;     // paso de rotacion en grados
     bool menuOpen_ = false;
+    bool fileMenuOpen_ = false;
     bool visible_ = false;
     std::function<void(int)> onTabChanged_;
     std::function<void(int)> onAddPart_;
     std::function<void(int)> onToolChanged_;
+    std::function<void(int)> onFileCommand_;
 };
 
 } // namespace sk

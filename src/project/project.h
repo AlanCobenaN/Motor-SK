@@ -40,6 +40,13 @@ bool create(const std::string& name, std::string& outFolder);
 bool rename(const std::string& folder, const std::string& newName,
             std::string& outFolder);
 
+// "Guardar como": copia el proyecto a una carpeta nueva con otro nombre
+// (mismo contenido de escenas/mallas/scripts) y actualiza el campo
+// "nombre" de la copia. Devuelve false si el nombre no es valido, ya
+// existe o la copia falla.
+bool saveAs(const std::string& folder, const std::string& newName,
+            std::string& outFolder);
+
 // Borra la carpeta completa (irreversible). Solo si contiene proyecto.sk.
 bool remove(const std::string& folder);
 

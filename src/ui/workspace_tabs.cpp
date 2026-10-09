@@ -21,6 +21,20 @@ const char* kTabsClass = "MotorSKWorkspaceTabs";
 
 const char* kTabNames[] = {"PLACE", "CODE", "GUI"};
 
+// Items del menu "Archivo" (indices 0..8 = kFileClose..kFileExit).
+const char* kFileItems[] = {
+    "Cerrar",
+    "Guardar",
+    "Guardar como",
+    "Importar",
+    "Importar como",
+    "Configuracion del editor",
+    "Personalizar atajos",
+    "Abrir guardados automaticos",
+    "Salir",
+};
+constexpr int kFileItemCount = 9;
+
 // Fila de atajos: herramientas del viewport como tarjetas compactas
 // (icono arriba, nombre abajo) y el boton Part. Medidas fijas para que
 // las pruebas puedan localizarlos por texto/posicion.
@@ -40,9 +54,10 @@ const ToolButton kToolButtons[] = {
 // ancho, icono arriba y nombre abajo).
 constexpr int kPartX = 268;
 constexpr int kPartWidth = 52;
-constexpr int kRowY = 2;
+// Las filas empiezan debajo de la fila de menus (kMenuBarHeight = 30).
+constexpr int kRowY = 32;
 constexpr int kRowHeight = 52;
-constexpr int kPartY = 2;
+constexpr int kPartY = kRowY;
 constexpr int kPartHeight = 52;
 // Boton delgado con triangulo hacia abajo, a la derecha del boton Part,
 // con la misma altura que las tarjetas.
@@ -63,8 +78,8 @@ constexpr int kDividerW = 8;
 constexpr int kFieldX = 350;
 constexpr int kFieldW = 108;
 constexpr int kFieldH = 22;
-constexpr int kFieldYTop = 4;
-constexpr int kFieldYBot = 30;
+constexpr int kFieldYTop = kRowY + 2;
+constexpr int kFieldYBot = kRowY + 28;
 constexpr int kFieldIconW = 24;   // zona del icono a la izquierda
 constexpr int kFieldEditDX = kFieldIconW + 1;
 constexpr int kFieldEditW = kFieldW - kFieldEditDX - 3;
@@ -84,6 +99,7 @@ constexpr int kShapeOptionCount = 7;
 constexpr int kMenuWidth = 128;
 constexpr int kMenuRowHeight = 24;
 const char* kShapeMenuClass = "MotorSKShapeMenu";
+const char* kFileMenuClass = "MotorSKFileMenu";
 
 // Icono GDI de cada herramienta, centrado en la mitad superior de la
 // tarjeta; lineas simples en color texto sobre el fondo (oscuro o
@@ -227,6 +243,62 @@ void paintPart(const DRAWITEMSTRUCT& dis) {
     textRc.top += 19;
     DrawTextA(hdc, label, -1, &textRc,
               DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    SelectObject(hdc, oldFont);
+}
+
+// Boton "Archivo" de la barra de menus: base oscura; en acento mientras
+// el desplegable esta abierto.
+void paintFileButton(const DRAWITEMSTRUCT& dis, bool open) {
+    if (!open) {
+        ui::paintDarkButton(dis, true);
+        return;
+    }
+    HDC hdc = dis.hDC;
+    RECT rc = dis.rcItem;
+    HBRUSH brush = CreateSolidBrush(theme::accent());
+    HPEN pen = CreatePen(PS_SOLID, 1, theme::accent());
+    HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(hdc, brush));
+    HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, pen));
+    RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, 10, 10);
+    SelectObject(hdc, oldBrush);
+    SelectObject(hdc, oldPen);
+    DeleteObject(pen);
+    DeleteObject(brush);
+
+    char label[64]{};
+    GetWindowTextA(dis.hwndItem, label, static_cast<int>(sizeof(label)));
+    HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, theme::uiFont()));
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, theme::text());
+    DrawTextA(hdc, label, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    SelectObject(hdc, oldFont);
+}
+
+// Item del desplegable de Archivo: fila oscura con el texto a la
+// izquierda y hover mas claro (el boton subclase lleva el estado).
+void paintFileItem(const DRAWITEMSTRUCT& dis) {
+    HDC hdc = dis.hDC;
+    RECT rc = dis.rcItem;
+    const ui::DarkButton* db = ui::findDarkButton(dis.hwndItem);
+    HBRUSH fill = CreateSolidBrush(
+        (db && db->hover) ? theme::surfaceHover() : theme::surface());
+    FillRect(hdc, &rc, fill);
+    DeleteObject(fill);
+    HPEN pen = CreatePen(PS_SOLID, 1, theme::border());
+    HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, pen));
+    MoveToEx(hdc, rc.left, rc.bottom - 1, nullptr);
+    LineTo(hdc, rc.right, rc.bottom - 1);
+    SelectObject(hdc, oldPen);
+    DeleteObject(pen);
+
+    char label[128]{};
+    GetWindowTextA(dis.hwndItem, label, static_cast<int>(sizeof(label)));
+    HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, theme::uiFont()));
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, theme::text());
+    RECT tr = rc;
+    tr.left += 12;
+    DrawTextA(hdc, label, -1, &tr, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
     SelectObject(hdc, oldFont);
 }
 
@@ -458,6 +530,17 @@ bool WorkspaceTabs::create(void* parentHwnd) {
         return false;
     }
 
+    // Fila de menus (arriba): boton "Archivo" con su desplegable.
+    fileButton_ = CreateWindowExA(
+        0, "BUTTON", "Archivo",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
+        kFileX, kFileY, kFileW, kFileH,
+        static_cast<HWND>(hwnd_),
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdFile)), inst, nullptr);
+    SendMessageA(static_cast<HWND>(fileButton_), WM_SETFONT,
+                 reinterpret_cast<WPARAM>(theme::uiFont()), TRUE);
+    ui::makeDarkButton(static_cast<HWND>(fileButton_));
+
     // Fila de atajos (arriba): herramientas del viewport + "Part".
     for (int i = 0; i < kToolCount; ++i) {
         const ToolButton& def = kToolButtons[i];
@@ -572,11 +655,45 @@ bool WorkspaceTabs::create(void* parentHwnd) {
         ShowWindow(static_cast<HWND>(shapeMenu_), SW_HIDE);
     }
 
+    // Desplegable del menu Archivo (WS_POPUP para no quedar recortado
+    // por la banda, como el de formas).
+    static bool fileMenuRegistered = false;
+    if (!fileMenuRegistered) {
+        WNDCLASSEXA wc{};
+        wc.cbSize = sizeof(wc);
+        wc.lpfnWndProc =
+            reinterpret_cast<WNDPROC>(&WorkspaceTabs::filePopupProc);
+        wc.hInstance = inst;
+        wc.hCursor = LoadCursorA(nullptr, IDC_ARROW);
+        wc.hbrBackground = theme::backgroundBrush();
+        wc.lpszClassName = kFileMenuClass;
+        RegisterClassExA(&wc);
+        fileMenuRegistered = true;
+    }
+    fileMenu_ = CreateWindowExA(0, kFileMenuClass, "", WS_POPUP | WS_BORDER,
+                                0, 0, kFileMenuWidth,
+                                kFileCount * kFileMenuRow, parent, nullptr, inst,
+                                this);
+    if (fileMenu_) {
+        for (int i = 0; i < kFileCount; ++i) {
+            fileButtons_[i] = CreateWindowExA(
+                0, "BUTTON", kFileItems[i],
+                WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, i * kFileMenuRow,
+                kFileMenuWidth, kFileMenuRow, static_cast<HWND>(fileMenu_),
+                reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdFileBase + i)),
+                inst, nullptr);
+            SendMessageA(static_cast<HWND>(fileButtons_[i]), WM_SETFONT,
+                         reinterpret_cast<WPARAM>(theme::uiFont()), TRUE);
+            ui::makeDarkButton(static_cast<HWND>(fileButtons_[i]));
+        }
+        ShowWindow(static_cast<HWND>(fileMenu_), SW_HIDE);
+    }
+
     // Navbar (abajo): pestanas compactas.
     for (int i = 0; i < kTabCount; ++i) {
         buttons_[i] = CreateWindowExA(0, "BUTTON", kTabNames[i],
                                       WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-                                      10 + i * 82, kShortcutHeight + 6, 76, 24,
+                                      10 + i * 82, kMenuBarHeight + kShortcutHeight + 6, 76, 24,
                                       static_cast<HWND>(hwnd_),
                                       reinterpret_cast<HMENU>(static_cast<INT_PTR>(i + 1)),
                                       inst, nullptr);
@@ -612,6 +729,9 @@ void WorkspaceTabs::destroy() {
             stepBoxes_[i] = nullptr;
             stepEdits_[i] = nullptr;
         }
+        fileButton_ = nullptr;
+        fileMenu_ = nullptr;
+        for (int i = 0; i < kFileCount; ++i) fileButtons_[i] = nullptr;
     }
 }
 
@@ -647,6 +767,11 @@ void WorkspaceTabs::resize(int width, int height) {
     const int bandHeight = (height < kTopBandHeight) ? height : kTopBandHeight;
     MoveWindow(static_cast<HWND>(hwnd_), 0, 0, width, bandHeight, TRUE);
 
+    if (fileButton_) {
+        MoveWindow(static_cast<HWND>(fileButton_), kFileX, kFileY, kFileW,
+                   kFileH, TRUE);
+    }
+
     for (int i = 0; i < kToolCount; ++i) {
         if (toolButtons_[i]) {
             MoveWindow(static_cast<HWND>(toolButtons_[i]),
@@ -680,7 +805,8 @@ void WorkspaceTabs::resize(int width, int height) {
     for (int i = 0; i < kTabCount; ++i) {
         if (buttons_[i]) {
             MoveWindow(static_cast<HWND>(buttons_[i]),
-                       10 + i * 82, kShortcutHeight + 6, 76, 24, TRUE);
+                       10 + i * 82, kMenuBarHeight + kShortcutHeight + 6, 76,
+                       24, TRUE);
         }
     }
 }
@@ -728,6 +854,10 @@ long long __stdcall WorkspaceTabs::wndProc(void* hwndPtr, unsigned int msg,
                     paintStepBox(*dis, false);
                     return TRUE;
                 }
+                if (dis->CtlID == kIdFile) {
+                    paintFileButton(*dis, self->fileMenuOpen_);
+                    return TRUE;
+                }
                 const int index = static_cast<int>(dis->CtlID) - 1;
                 if (index >= 0 && index < kTabCount) {
                     paintTab(*dis, index == self->active_);
@@ -761,6 +891,10 @@ long long __stdcall WorkspaceTabs::wndProc(void* hwndPtr, unsigned int msg,
                 }
                 if (HIWORD(wParam) == BN_CLICKED && id == kIdPartMenu) {
                     self->showShapeMenu(!self->menuOpen_);
+                    return 0;
+                }
+                if (HIWORD(wParam) == BN_CLICKED && id == kIdFile) {
+                    self->showFileMenu(!self->fileMenuOpen_);
                     return 0;
                 }
                 if (HIWORD(wParam) == BN_CLICKED && id >= 1 && id <= kTabCount) {
@@ -833,6 +967,79 @@ long long __stdcall WorkspaceTabs::popupProc(void* hwndPtr, unsigned int msg,
         }
     }
     return DefWindowProcA(hwnd, msg, wParam, lParam);
+}
+
+long long __stdcall WorkspaceTabs::filePopupProc(void* hwndPtr, unsigned int msg,
+                                                 unsigned long long wParam,
+                                                 long long lParam) {
+    HWND hwnd = static_cast<HWND>(hwndPtr);
+    WorkspaceTabs* self = reinterpret_cast<WorkspaceTabs*>(
+        GetWindowLongPtrA(hwnd, GWLP_USERDATA));
+
+    if (msg == WM_NCCREATE) {
+        auto* cs = reinterpret_cast<CREATESTRUCTA*>(lParam);
+        self = static_cast<WorkspaceTabs*>(cs->lpCreateParams);
+        SetWindowLongPtrA(hwnd, GWLP_USERDATA,
+                          reinterpret_cast<LONG_PTR>(self));
+    }
+
+    if (self) {
+        switch (msg) {
+            case WM_ACTIVATE:
+                // Al perder la activacion (clic fuera) se cierra.
+                if (LOWORD(wParam) == WA_INACTIVE && self->fileMenuOpen_) {
+                    self->showFileMenu(false);
+                }
+                return 0;
+            case WM_DRAWITEM: {
+                auto* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
+                const int id = static_cast<int>(dis->CtlID);
+                if (id >= kIdFileBase && id < kIdFileBase + kFileCount) {
+                    paintFileItem(*dis);
+                    return TRUE;
+                }
+                break;
+            }
+            case WM_COMMAND: {
+                const int id = static_cast<int>(LOWORD(wParam));
+                if (HIWORD(wParam) == BN_CLICKED && id >= kIdFileBase &&
+                    id < kIdFileBase + kFileCount) {
+                    // El desplegable se cierra antes de notificar al
+                    // dueno: los dialogos modales (Guardar como, etc.)
+                    // no pueden salir con el menu encima.
+                    self->showFileMenu(false);
+                    if (self->onFileCommand_) {
+                        self->onFileCommand_(id - kIdFileBase + 1);
+                    }
+                    return 0;
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    }
+    return DefWindowProcA(hwnd, msg, wParam, lParam);
+}
+
+void WorkspaceTabs::showFileMenu(bool show) {
+    if (!fileMenu_) return;
+    if (!show) {
+        ShowWindow(static_cast<HWND>(fileMenu_), SW_HIDE);
+        fileMenuOpen_ = false;
+        InvalidateRect(static_cast<HWND>(fileButton_), nullptr, TRUE);
+        return;
+    }
+    if (!fileButton_) return;
+    RECT rc{};
+    GetWindowRect(static_cast<HWND>(fileButton_), &rc);
+    SetWindowPos(static_cast<HWND>(fileMenu_), HWND_TOPMOST, rc.left,
+                 rc.bottom + 2, kFileMenuWidth, kFileCount * kFileMenuRow,
+                 SWP_SHOWWINDOW);
+    SetFocus(static_cast<HWND>(fileMenu_));
+    fileMenuOpen_ = true;
+    InvalidateRect(static_cast<HWND>(fileButton_), nullptr, TRUE);
+    SK_INFO("menu Archivo abierto");
 }
 
 void WorkspaceTabs::setPartShape(int shape) {

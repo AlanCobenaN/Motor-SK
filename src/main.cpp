@@ -1,4 +1,5 @@
 #include <windows.h>
+#include <commdlg.h>
 
 #include <algorithm>
 #include <cmath>
@@ -207,6 +208,23 @@ int main(int argc, char** argv) {
         SK_INFO("Proyecto abierto: %s", active.name.c_str());
     };
 
+    // Cierra el proyecto y vuelve al panel de proyectos (menu Archivo >
+    // Cerrar, o Esc). Guarda la escena por si quedo alguna mutacion sin
+    // persistir y limpia la seleccion para el siguiente proyecto.
+    auto closeProject = [&]() {
+        saveScene();
+        view3d = false;
+        selection.clear();
+        primary.clear();
+        panel.setVisible(true);
+        panel.refresh();
+        workspace.setVisible(false);
+        place.setVisible(false);
+        code.setVisible(false);
+        SetWindowTextA(static_cast<HWND>(window.nativeHandle()), "Motor SK");
+        SK_INFO("Proyecto cerrado");
+    };
+
     if (!panel.create(window.nativeHandle(), &config, openProject)) {
         renderer.shutdown();
         window.destroy();
@@ -259,6 +277,151 @@ int main(int argc, char** argv) {
         saveScene();
         logProjection = true;
         SK_INFO("Part anadido: %s (%s)", name.c_str(), sk::shapeName(s));
+    });
+
+    // Pinta Properties + caret del Explorer tras cambiar la seleccion.
+    auto applySelection = [&](std::vector<std::string> names,
+                              const std::string& newPrimary) {
+        selection = std::move(names);
+        primary = newPrimary;
+        place.syncTreeSelection(primary);
+        if (selection.empty()) {
+            place.showNoSelection();
+        } else if (selection.size() == 1) {
+            const sk::SceneObject* object = scene.findByName(selection.front());
+            if (object) {
+                place.showObject(*object);
+            } else {
+                place.showNoSelection();
+            }
+        } else {
+            place.showMultiple(static_cast<int>(selection.size()));
+        }
+    };
+
+    // Menu "Archivo" de la barra de menus: cada comando decide aqui. Los
+    // tres dialogos informativos (configuracion, atajos, autosaves) son
+    // un placeholder hasta que se implementen sus subsistemas.
+    workspace.setOnFileCommand([&](int id) {
+        const HWND hwnd = static_cast<HWND>(window.nativeHandle());
+        switch (id) {
+        case sk::kFileClose:
+            if (view3d) closeProject();
+            break;
+        case sk::kFileSave:
+            if (view3d) {
+                saveScene();
+                SK_INFO("Escena guardada");
+            }
+            break;
+        case sk::kFileSaveAs: {
+            if (!view3d || active.folder.empty()) break;
+            const std::string newName = sk::ui::promptText(
+                hwnd, "Guardar como", active.name.c_str());
+            if (newName.empty() || newName == active.name) break;
+            std::string newFolder;
+            if (!sk::project::saveAs(active.folder, newName, newFolder)) {
+                MessageBoxA(hwnd,
+                            "No se pudo guardar como: nombre invalido o ya "
+                            "existe un proyecto con ese nombre.",
+                            "Guardar como", MB_OK | MB_ICONWARNING);
+            } else {
+                saveScene();
+                openProject(newFolder);
+            }
+            break;
+        }
+        case sk::kFileImport:
+        case sk::kFileImportAs: {
+            char filename[MAX_PATH]{};
+            OPENFILENAMEA ofn{};
+            ofn.lStructSize = sizeof(ofn);
+            ofn.hwndOwner = hwnd;
+            ofn.lpstrFilter =
+                "Escenas Motor SK (*.scene)\0*.scene\0"
+                "Todos los archivos (*.*)\0*.*\0";
+            ofn.lpstrFile = filename;
+            ofn.nMaxFile = MAX_PATH;
+            ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+            if (!GetOpenFileNameA(&ofn)) break;
+
+            // "Importar como" pregunta un prefijo de nombre; los objetos
+            // entran renombrados "prefijo <nombre original>".
+            std::string prefix;
+            if (id == sk::kFileImportAs) {
+                prefix = sk::ui::promptText(hwnd, "Importar como", "");
+            }
+
+            sk::Scene incoming;
+            if (!incoming.loadFromFile(ofn.lpstrFile)) {
+                SK_ERROR("Importar: no se pudo leer %s", ofn.lpstrFile);
+                break;
+            }
+            if (incoming.objects().empty()) {
+                SK_INFO("Importar: %s esta vacia", ofn.lpstrFile);
+                break;
+            }
+            captureState();
+            std::vector<std::string> added;
+            for (const sk::SceneObject& src : incoming.objects()) {
+                sk::SceneObject& copy = scene.addCopy(src, sk::Vec3{});
+                if (!prefix.empty()) {
+                    const std::string base = prefix + " " + src.name;
+                    std::string name = base;
+                    int n = 1;
+                    while (scene.findByName(name)) {
+                        name = base + std::to_string(++n);
+                    }
+                    copy.name = name;
+                }
+                place.addObject(copy.name);
+                added.push_back(copy.name);
+            }
+            saveScene();
+            if (!added.empty()) applySelection(added, added.back());
+            logProjection = true;
+            SK_INFO("Importados %d objeto(s) de %s",
+                    static_cast<int>(added.size()), ofn.lpstrFile);
+            break;
+        }
+        case sk::kFileEditorSettings:
+            MessageBoxA(hwnd,
+                        "La configuracion del editor todavia esta en "
+                        "desarrollo.\n\n"
+                        "Aqui se podran ajustar la camara, la rejilla y el "
+                        "aspecto del editor.",
+                        "Configuracion del editor", MB_OK | MB_ICONINFORMATION);
+            break;
+        case sk::kFileShortcuts:
+            MessageBoxA(
+                hwnd,
+                "Atajos actuales (la personalizacion llegara en un proximo "
+                "paso):\n\n"
+                "Herramientas .......... 1, 2, 3, 4\n"
+                "Camara ................ WASD + clic derecho, rueda, Q/E\n"
+                "Foco en la seleccion .. F\n"
+                "Renombrar parte ....... F12\n"
+                "Deshacer/Rehacer ...... Ctrl+Z / Ctrl+Y\n"
+                "Copiar/Cortar/Pegar ... Ctrl+C / Ctrl+X / Ctrl+V\n"
+                "Clonar ................ Ctrl+D\n"
+                "Rotar 90 (Y/X) ........ Ctrl+R / Ctrl+T\n"
+                "Eliminar .............. Suprimir / Retroceso\n"
+                "Volver al panel ....... Esc",
+                "Personalizar atajos", MB_OK | MB_ICONINFORMATION);
+            break;
+        case sk::kFileAutosaves:
+            MessageBoxA(hwnd,
+                        "No hay guardados automaticos todavia.\n\n"
+                        "El guardado automatico llegara en un proximo paso.",
+                        "Guardados automaticos", MB_OK | MB_ICONINFORMATION);
+            break;
+        case sk::kFileExit:
+            PostMessageA(static_cast<HWND>(window.nativeHandle()), WM_CLOSE, 0,
+                         0);
+            break;
+        default:
+            break;
+        }
     });
 
     // Cambio de herramienta (botones de la banda o teclas 1-4).
@@ -506,26 +669,6 @@ int main(int argc, char** argv) {
         return p.x >= x0 && p.x <= x1 && p.y >= y0 &&
                p.y <= static_cast<float>(window.framebufferHeight());
     };
-    // Pinta Properties + caret del Explorer tras cambiar la seleccion.
-    auto applySelection = [&](std::vector<std::string> names,
-                              const std::string& newPrimary) {
-        selection = std::move(names);
-        primary = newPrimary;
-        place.syncTreeSelection(primary);
-        if (selection.empty()) {
-            place.showNoSelection();
-        } else if (selection.size() == 1) {
-            const sk::SceneObject* object = scene.findByName(selection.front());
-            if (object) {
-                place.showObject(*object);
-            } else {
-                place.showNoSelection();
-            }
-        } else {
-            place.showMultiple(static_cast<int>(selection.size()));
-        }
-    };
-
     // Vuelve a construir el Explorer tras deshacer/rehacer: las Parts
     // pueden haber cambiado de nombre, forma o desaparecido.
     auto rebuildExplorer = [&]() {
@@ -620,15 +763,7 @@ int main(int argc, char** argv) {
             dragActive = false;
             SK_INFO("marquee cancelado");
         } else if (escDown && !escWasDown) {
-            view3d = false;
-            dragPending = false;
-            dragActive = false;
-            panel.setVisible(true);
-            panel.refresh();
-            workspace.setVisible(false);
-            place.setVisible(false);
-            code.setVisible(false);
-            SetWindowTextA(static_cast<HWND>(window.nativeHandle()), "Motor SK");
+            closeProject();
             escWasDown = escDown;
             continue;
         }

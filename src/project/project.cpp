@@ -190,6 +190,42 @@ bool rename(const std::string& folder, const std::string& newName,
     return true;
 }
 
+bool saveAs(const std::string& folder, const std::string& newName,
+            std::string& outFolder) {
+    if (!isValidName(newName)) return false;
+
+    Project source;
+    if (!load(folder, source)) return false;
+
+    const fs::path dst = fs::path(rootFolder()) / newName;
+    std::error_code ec;
+    if (fs::exists(dst, ec)) return false;
+
+    fs::copy(folder, dst, fs::copy_options::recursive |
+                              fs::copy_options::overwrite_existing,
+             ec);
+    if (ec) {
+        SK_ERROR("saveAs: fallo copiando %s (%s)", folder.c_str(),
+                 ec.message().c_str());
+        return false;
+    }
+
+    {
+        std::ofstream file(dst / kFileName);
+        if (!file) return false;
+        file << "nombre: " << newName << "\n"
+             << "version: " << (source.version.empty() ? "1" : source.version)
+             << "\n"
+             << "escena: "
+             << (source.scene.empty() ? "escenas/inicio.scene" : source.scene)
+             << "\n";
+    }
+
+    outFolder = dst.string();
+    SK_INFO("Proyecto guardado como: %s", outFolder.c_str());
+    return true;
+}
+
 bool remove(const std::string& folder) {
     // Salvaguarda: solo borramos carpetas que son proyectos.
     Project probe;
