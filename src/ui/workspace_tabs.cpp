@@ -21,6 +21,11 @@ const char* kTabsClass = "MotorSKWorkspaceTabs";
 
 const char* kTabNames[] = {"PLACE", "CODE", "GUI"};
 
+// X donde empiezan las pestanas de la navbar: deja sitio al boton "libro"
+// (kDocsButtonX + kDocsButtonSize) mas un margen.
+constexpr int kNavbarY = 30 + 54 + 6;  // kMenuBarHeight + kShortcutHeight + 6
+constexpr int kTabStartX = 10 + 24 + 8;
+
 // Items del menu "Archivo" (indices 0..8 = kFileClose..kFileExit).
 const char* kFileItems[] = {
     "Cerrar",
@@ -274,10 +279,54 @@ void paintFileButton(const DRAWITEMSTRUCT& dis, bool open) {
     SelectObject(hdc, oldFont);
 }
 
+// Boton "libro" de la navbar: cuadrado, base oscura (acento cuando la
+// vista de docs esta activa) e icono de libro dibujado con GDI.
+void paintDocsButton(const DRAWITEMSTRUCT& dis, bool active) {
+    HDC hdc = dis.hDC;
+    RECT rc = dis.rcItem;
+
+    COLORREF fill = active ? theme::accent() : theme::surface();
+    if (!active && (dis.itemState & ODS_SELECTED)) fill = theme::surfacePressed();
+
+    HBRUSH brush = CreateSolidBrush(fill);
+    HPEN pen = CreatePen(PS_SOLID, 1, active ? theme::accent() : theme::border());
+    HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(hdc, brush));
+    HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, pen));
+    RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, 8, 8);
+    SelectObject(hdc, oldBrush);
+    SelectObject(hdc, oldPen);
+    DeleteObject(pen);
+    DeleteObject(brush);
+
+    const int cx = (rc.left + rc.right) / 2;
+    const int cy = (rc.top + rc.bottom) / 2;
+    const int bw = 9;   // ancho de cada mitad del libro
+    const int bh = 12;  // alto de las tapas
+
+    HBRUSH pageBrush = CreateSolidBrush(theme::text());
+    HPEN iconPen = CreatePen(PS_SOLID, 1, theme::text());
+    HBRUSH oldB2 = static_cast<HBRUSH>(SelectObject(hdc, pageBrush));
+    HPEN oldP2 = static_cast<HPEN>(SelectObject(hdc, iconPen));
+
+    // Tapa izquierda y derecha, como dos rectangulos con el lomo al centro.
+    POINT left[4] = {
+        {cx - bw, cy - bh / 2}, {cx - 1, cy - bh / 2 - 1},
+        {cx - 1, cy + bh / 2 - 1}, {cx - bw, cy + bh / 2}};
+    POINT right[4] = {
+        {cx + 1, cy - bh / 2 - 1}, {cx + bw, cy - bh / 2},
+        {cx + bw, cy + bh / 2}, {cx + 1, cy + bh / 2 - 1}};
+    Polygon(hdc, left, 4);
+    Polygon(hdc, right, 4);
+
+    SelectObject(hdc, oldB2);
+    SelectObject(hdc, oldP2);
+    DeleteObject(iconPen);
+    DeleteObject(pageBrush);
+}
+
 // Item del desplegable de Archivo: fila oscura con el texto a la
 // izquierda y hover mas claro (el boton subclase lleva el estado).
-void paintFileItem(const DRAWITEMSTRUCT& dis) {
-    HDC hdc = dis.hDC;
+void paintFileItem(const DRAWITEMSTRUCT& dis) {    HDC hdc = dis.hDC;
     RECT rc = dis.rcItem;
     const ui::DarkButton* db = ui::findDarkButton(dis.hwndItem);
     HBRUSH fill = CreateSolidBrush(
@@ -693,13 +742,24 @@ bool WorkspaceTabs::create(void* parentHwnd) {
     for (int i = 0; i < kTabCount; ++i) {
         buttons_[i] = CreateWindowExA(0, "BUTTON", kTabNames[i],
                                       WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-                                      10 + i * 82, kMenuBarHeight + kShortcutHeight + 6, 76, 24,
+                                      kTabStartX + i * 82, kNavbarY, 76, 24,
                                       static_cast<HWND>(hwnd_),
                                       reinterpret_cast<HMENU>(static_cast<INT_PTR>(i + 1)),
                                       inst, nullptr);
         SendMessageA(static_cast<HWND>(buttons_[i]), WM_SETFONT,
                      reinterpret_cast<WPARAM>(theme::uiFont()), TRUE);
     }
+
+    // Boton "libro" (documentacion de clases) a la izquierda de PLACE.
+    docsBtn_ = CreateWindowExA(
+        0, "BUTTON", "",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
+        kDocsButtonX, kNavbarY, kDocsButtonSize, kDocsButtonSize,
+        static_cast<HWND>(hwnd_),
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdDocsButton)), inst,
+        nullptr);
+    SendMessageA(static_cast<HWND>(docsBtn_), WM_SETFONT,
+                 reinterpret_cast<WPARAM>(theme::uiFont()), TRUE);
 
     // Los controles hijos se apilan de abajo hacia arriba: el triangulito
     // (creado antes que la navbar) queda debajo del boton Part. Lo subimos
@@ -732,6 +792,7 @@ void WorkspaceTabs::destroy() {
         fileButton_ = nullptr;
         fileMenu_ = nullptr;
         for (int i = 0; i < kFileCount; ++i) fileButtons_[i] = nullptr;
+        docsBtn_ = nullptr;
     }
 }
 
@@ -741,14 +802,27 @@ void WorkspaceTabs::setVisible(bool visible) {
 }
 
 void WorkspaceTabs::selectTab(int index) {
-    if (index < 0 || index >= kTabCount || index == active_) return;
+    if (index < 0 || index >= kTabCount) return;
+    // Si la vista de docs esta activa, pulsar una pestana siempre la
+    // abandona (aunque sea la pestana ya activa).
+    if (index == active_ && !docsActive_) return;
     active_ = index;
+    if (docsActive_) {
+        docsActive_ = false;
+        if (docsBtn_) InvalidateRect(static_cast<HWND>(docsBtn_), nullptr, TRUE);
+    }
     for (int i = 0; i < kTabCount; ++i) {
         if (buttons_[i]) {
             InvalidateRect(static_cast<HWND>(buttons_[i]), nullptr, TRUE);
         }
     }
     if (onTabChanged_) onTabChanged_(index);
+}
+
+void WorkspaceTabs::setDocsActive(bool active) {
+    if (docsActive_ == active) return;
+    docsActive_ = active;
+    if (docsBtn_) InvalidateRect(static_cast<HWND>(docsBtn_), nullptr, TRUE);
 }
 
 void WorkspaceTabs::setTool(int tool) {
@@ -805,9 +879,12 @@ void WorkspaceTabs::resize(int width, int height) {
     for (int i = 0; i < kTabCount; ++i) {
         if (buttons_[i]) {
             MoveWindow(static_cast<HWND>(buttons_[i]),
-                       10 + i * 82, kMenuBarHeight + kShortcutHeight + 6, 76,
-                       24, TRUE);
+                       kTabStartX + i * 82, kNavbarY, 76, 24, TRUE);
         }
+    }
+    if (docsBtn_) {
+        MoveWindow(static_cast<HWND>(docsBtn_), kDocsButtonX, kNavbarY,
+                   kDocsButtonSize, kDocsButtonSize, TRUE);
     }
 }
 
@@ -858,6 +935,10 @@ long long __stdcall WorkspaceTabs::wndProc(void* hwndPtr, unsigned int msg,
                     paintFileButton(*dis, self->fileMenuOpen_);
                     return TRUE;
                 }
+                if (dis->CtlID == kIdDocsButton) {
+                    paintDocsButton(*dis, self->docsActive_);
+                    return TRUE;
+                }
                 const int index = static_cast<int>(dis->CtlID) - 1;
                 if (index >= 0 && index < kTabCount) {
                     paintTab(*dis, index == self->active_);
@@ -895,6 +976,10 @@ long long __stdcall WorkspaceTabs::wndProc(void* hwndPtr, unsigned int msg,
                 }
                 if (HIWORD(wParam) == BN_CLICKED && id == kIdFile) {
                     self->showFileMenu(!self->fileMenuOpen_);
+                    return 0;
+                }
+                if (HIWORD(wParam) == BN_CLICKED && id == kIdDocsButton) {
+                    if (self->onDocs_) self->onDocs_();
                     return 0;
                 }
                 if (HIWORD(wParam) == BN_CLICKED && id >= 1 && id <= kTabCount) {

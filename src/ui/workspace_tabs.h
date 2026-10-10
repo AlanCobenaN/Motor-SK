@@ -52,6 +52,13 @@ public:
     // Se llama cada vez que cambia la division activa.
     void setOnTabChanged(std::function<void(int)> cb) { onTabChanged_ = std::move(cb); }
 
+    // Boton "libro" (documentacion de clases): al pulsarlo se pide cambiar
+    // a la vista de docs. La navbar resalta el boton mientras docsActive_
+    // este activo.
+    void setOnDocs(std::function<void()> cb) { onDocs_ = std::move(cb); }
+    void setDocsActive(bool active);
+    bool docsActive() const { return docsActive_; }
+
     // Atajo "Part": anade un objeto 3D a la escena con una forma
     // determinada (0 = cubo). El boton Part llama a cb(0), el menu de
     // formas llama con el indice de la forma elegida.
@@ -115,6 +122,12 @@ private:
     static constexpr int kIdStepEditMove = 140; // cajitas de pasos (texto)
     static constexpr int kIdStepEditRot = 141;
 
+    // Boton cuadrado con icono de libro, a la izquierda de PLACE en la
+    // navbar. Muestra la vista de documentacion de clases.
+    static constexpr int kIdDocsButton = 159;
+    static constexpr int kDocsButtonX = 10;
+    static constexpr int kDocsButtonSize = 24;
+
     // Boton "Archivo" de la fila de menus y su desplegable.
     static constexpr int kIdFile = 150;
     static constexpr int kFileX = 10;
@@ -140,6 +153,7 @@ private:
     void* fileButton_ = nullptr;       // boton "Archivo" de la fila de menus
     void* fileMenu_ = nullptr;         // desplegable del menu Archivo
     void* fileButtons_[kFileCount] = {};
+    void* docsBtn_ = nullptr;          // boton "libro" de la navbar
     int active_ = 0;
     int tool_ = 0;
     int partShape_ = 0;
@@ -148,10 +162,11 @@ private:
     bool menuOpen_ = false;
     bool fileMenuOpen_ = false;
     bool visible_ = false;
+    bool docsActive_ = false;
     std::function<void(int)> onTabChanged_;
     std::function<void(int)> onAddPart_;
     std::function<void(int)> onToolChanged_;
     std::function<void(int)> onFileCommand_;
+    std::function<void()> onDocs_;
 };
-
 } // namespace sk

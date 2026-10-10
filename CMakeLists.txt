@@ -44,6 +44,7 @@ add_executable(${PROJECT_NAME}
     src/ui/script_picker.cpp
     src/ui/place_view.cpp
     src/ui/workspace_tabs.cpp
+    src/ui/docs_view.cpp
 )
 
 # Para que rc.exe encuentre logo.ico junto al app.rc.

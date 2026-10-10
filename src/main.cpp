@@ -22,6 +22,7 @@
 #include "scene/scene.h"
 #include "scene/snapping.h"
 #include "ui/code_view.h"
+#include "ui/docs_view.h"
 #include "ui/place_view.h"
 #include "ui/projects_panel.h"
 #include "ui/prompt.h"
@@ -113,6 +114,7 @@ int main(int argc, char** argv) {
     sk::WorkspaceTabs workspace;
     sk::PlaceView place;
     sk::CodeView code;
+    sk::DocsView docs;
 
     // Seleccion activa (nombres en la escena). "primary" es el ultimo
     // objeto tocado: el que el Explorer marca con el caret.
@@ -202,6 +204,8 @@ int main(int argc, char** argv) {
         panel.setVisible(false);
         workspace.setVisible(true);
         const int tab = workspace.active();
+        docs.setVisible(false);
+        workspace.setDocsActive(false);
         place.setVisible(tab == 0);
         code.setVisible(tab == 1);
         code.open(active);
@@ -224,6 +228,7 @@ int main(int argc, char** argv) {
         workspace.setVisible(false);
         place.setVisible(false);
         code.setVisible(false);
+        docs.setVisible(false);
         SetWindowTextA(static_cast<HWND>(window.nativeHandle()), "Motor SK");
         SK_INFO("Proyecto cerrado");
     };
@@ -261,11 +266,34 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    if (!docs.create(window.nativeHandle())) {
+        docs.destroy();
+        code.destroy();
+        place.destroy();
+        workspace.destroy();
+        panel.destroy();
+        renderer.shutdown();
+        window.destroy();
+        return 1;
+    }
+    docs.setVisible(false);
+
     // Solo la division PLACE muestra Explorer/Properties y solo CODE
     // muestra el organizador de scripts; GUI vendra despues.
     workspace.setOnTabChanged([&](int tab) {
+        docs.setVisible(false);
+        workspace.setDocsActive(false);
         place.setVisible(tab == 0);
         code.setVisible(tab == 1);
+    });
+
+    // Boton "libro" de la navbar: muestra la documentacion de clases en
+    // lugar del viewport 3D (oculta PLACE/CODE).
+    workspace.setOnDocs([&]() {
+        place.setVisible(false);
+        code.setVisible(false);
+        docs.setVisible(true);
+        workspace.setDocsActive(true);
     });
 
     // Atajo "Part": anade el objeto a la escena y al Explorer (insertar
@@ -793,6 +821,7 @@ place.setOnReparent([&](const std::string& child,
             workspace.resize(window.framebufferWidth(), window.framebufferHeight());
             place.resize(window.framebufferWidth(), window.framebufferHeight());
             code.resize(window.framebufferWidth(), window.framebufferHeight());
+            docs.resize(window.framebufferWidth(), window.framebufferHeight());
         }
 
         if (!view3d) {
