@@ -13,6 +13,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Recursos de Windows (app.rc): icono del .exe. Solo con MSVC, que trae
     src/ui/docs_view.cpp
     src/ui/docs_view.h
+    src/ui/docs_view.cpp
+    src/ui/docs_view.h
 # rc.exe; CMake compila los .rc listados en las fuentes del target.
 if(MSVC)
     enable_language(RC)
