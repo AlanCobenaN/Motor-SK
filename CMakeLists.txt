@@ -28,8 +28,6 @@ find_package(Vulkan REQUIRED)
 
 add_executable(${PROJECT_NAME}
     app.rc
-    src/ui/docs_view.cpp
-    src/ui/docs_view.h
     src/core/config.cpp
     src/platform/window.cpp
     src/project/project.cpp
@@ -50,8 +48,6 @@ add_executable(${PROJECT_NAME}
 )
 
 # Para que rc.exe encuentre logo.ico junto al app.rc.
-    src/ui/docs_view.cpp
-    src/ui/docs_view.h
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE VK_USE_PLATFORM_WIN32_KHR)
 
