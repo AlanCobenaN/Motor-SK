@@ -303,8 +303,10 @@ void paintDocsButton(const DRAWITEMSTRUCT& dis, bool active) {
     const int bw = 9;   // ancho de cada mitad del libro
     const int bh = 12;  // alto de las tapas
 
-    HBRUSH pageBrush = CreateSolidBrush(theme::text());
-    HPEN iconPen = CreatePen(PS_SOLID, 1, theme::text());
+    // Icono en gris claro (nada de blanco puro), acorde al tema oscuro.
+    const COLORREF ink = RGB(186, 186, 194);
+    HBRUSH pageBrush = CreateSolidBrush(ink);
+    HPEN iconPen = CreatePen(PS_SOLID, 1, ink);
     HBRUSH oldB2 = static_cast<HBRUSH>(SelectObject(hdc, pageBrush));
     HPEN oldP2 = static_cast<HPEN>(SelectObject(hdc, iconPen));
 
